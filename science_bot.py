@@ -32,7 +32,7 @@ except Exception as e:
 # =========================================================
 def select_best_model():
     base_url = "https://generativelanguage.googleapis.com/v1beta/models"
-    target_version = "gemini-3.0-flash" # ★ 사용자가 원하는 목표 버전
+    target_version = "gemini-3-flash" # ★ 사용자가 원하는 목표 버전
     
     try:
         print(f"📡 모델 리스트를 조회하여 '{target_version}'을 찾습니다...")
@@ -193,3 +193,4 @@ def run_bot():
 
 if __name__ == "__main__":
     run_bot()
+
