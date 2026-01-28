@@ -1,0 +1,31 @@
+name: Daily Science Post
+
+on:
+  schedule:
+    # 한국 시간 기준 매일 아침 9시 (UTC 00:00)
+    - cron: '0 0 * * *'
+  workflow_dispatch: # 우리가 원할 때 수동으로 버튼 눌러 실행하는 기능
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          pip install requests feedparser google-api-python-client google-auth-oauthlib
+
+      - name: Run bot
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          BLOG_ID: ${{ secrets.BLOG_ID }}
+          CLIENT_JSON: ${{ secrets.CLIENT_JSON }}
+          TOKEN_JSON: ${{ secrets.TOKEN_JSON }}
+        run: python science_bot.py
