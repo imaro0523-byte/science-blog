@@ -18,7 +18,7 @@ except Exception as e:
     print(f"에러 상세: {e}")
     exit(1)
 
-MODEL_NAME = "gemini-2.0-flash" 
+MODEL_NAME = "gemini-2.5-flash" 
 
 def get_latest_news():
     print("🔍 뉴스 검색 중...")
@@ -77,3 +77,4 @@ def run_bot():
 
 if __name__ == "__main__":
     run_bot()
+
