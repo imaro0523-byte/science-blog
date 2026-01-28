@@ -10,7 +10,7 @@ GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 BLOG_ID = os.environ.get('BLOG_ID')
 TOKEN_JSON_STR = os.environ.get('TOKEN_JSON')
 
-MODEL_NAME = "gemini-2.0-flash"
+MODEL_NAME = "gemini-2.5-flash"
 
 def get_latest_news():
     rss_url = "https://news.google.com/rss/search?q=science+when:1d&hl=ko&gl=KR&ceid=KR:ko"
@@ -64,3 +64,4 @@ def run_bot():
 
 if __name__ == "__main__":
     run_bot()
+
