@@ -4,7 +4,7 @@ on:
   schedule:
     # 한국 시간 기준 매일 아침 9시 (UTC 00:00)
     - cron: '0 0 * * *'
-  workflow_dispatch: # 우리가 원할 때 수동으로 버튼 눌러 실행하는 기능
+  workflow_dispatch: # 수동 실행 버튼
 
 jobs:
   build:
@@ -24,8 +24,10 @@ jobs:
 
       - name: Run bot
         env:
+          # ★ 여기에 Pexels 키 배달 주문을 추가했습니다!
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           BLOG_ID: ${{ secrets.BLOG_ID }}
           CLIENT_JSON: ${{ secrets.CLIENT_JSON }}
           TOKEN_JSON: ${{ secrets.TOKEN_JSON }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }} 
         run: python science_bot.py
