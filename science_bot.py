@@ -7,118 +7,82 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
 # =========================================================
-# [설정 구역] GitHub Secrets에서 환경변수 가져오기
+# [설정 구역] GitHub Secrets 가져오기
 # =========================================================
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 BLOG_ID = os.environ.get('BLOG_ID')
-PEXELS_API_KEY = os.environ.get('PEXELS_API_KEY') # 새로 추가된 키
+PEXELS_API_KEY = os.environ.get('PEXELS_API_KEY')
 
 try:
     client_env = os.environ.get('CLIENT_JSON')
     token_env = os.environ.get('TOKEN_JSON')
     
     if not client_env or not token_env or not PEXELS_API_KEY:
-        raise ValueError("GitHub Secrets에 필수 값(CLIENT, TOKEN, PEXELS_API_KEY)이 없습니다.")
+        raise ValueError("GitHub Secrets 필수 값 누락")
         
     CLIENT_JSON = json.loads(client_env)
     TOKEN_JSON = json.loads(token_env)
 except Exception as e:
-    print("⛔ JSON 파싱 실패 또는 Pexels 키 누락. Secrets 값을 확인하세요.")
-    print(f"에러 상세: {e}")
+    print(f"⛔ 설정 로딩 에러: {e}")
     exit(1)
 
 # =========================================================
-# [함수 1] Gemini 2.5 Flash  선택
+# [함수 1] 모델 선택
 # =========================================================
 
 MODEL_NAME = "gemini-2.5-flash"
 
 # =========================================================
-# [함수 2] (개선됨) 구글 뉴스 과학 섹션 헤드라인 가져오기
+# [함수 2] 뉴스 가져오기
 # =========================================================
 def get_top_science_news():
-    print("🔍 구글 뉴스 과학 섹션의 탑 헤드라인을 검색합니다...")
-    # 변경점: 단순 검색이 아닌 '과학 토픽'의 헤드라인 RSS 사용 (인기/중요도 반영)
+    print("🔍 구글 뉴스 과학 섹션 헤드라인 검색...")
     rss_url = "https://news.google.com/rss/headlines/section/topic/SCIENCE?hl=ko&gl=KR&ceid=KR:ko"
-    feed = feedparser.parse(rss_url)
-    
-    if feed.entries:
-        # 가장 상단에 있는 뉴스가 현재 가장 화제인 뉴스
-        news = feed.entries[0]
-        print(f"✅ 선정된 탑 뉴스: {news.title}")
-        return news
-    else:
-        return None
+    try:
+        feed = feedparser.parse(rss_url)
+        if feed.entries:
+            print(f"✅ 선정된 뉴스: {feed.entries[0].title}")
+            return feed.entries[0]
+    except Exception as e:
+        print(f"⛔ 뉴스 검색 에러: {e}")
+    return None
 
 # =========================================================
-# [신규 함수 3] 이미지 검색을 위한 영어 키워드 추출
+# [함수 3] 키워드 추출
 # =========================================================
 def get_search_keywords(news_title):
-    print("🧠 이미지 검색용 키워드를 추출합니다...")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
-    prompt = f"다음 뉴스 제목에서 이미지 검색에 사용할 수 있는 핵심 영어 명사 키워드 2~3개를 추출해서 콤마로 구분해줘. 다른 말은 하지 마. 뉴스 제목: {news_title}"
-    payload = {"contents": [{"parts": [{"text": prompt}]}]}
-    headers = {'Content-Type': 'application/json'}
-    
+    prompt = f"뉴스 제목: '{news_title}'. 이 뉴스의 핵심 영어 명사 키워드 3개를 콤마로 구분해줘."
     try:
-        response = requests.post(url, json=payload, headers=headers)
-        if response.status_code == 200:
-            keywords = response.json()['candidates'][0]['content']['parts'][0]['text'].strip()
-            print(f"🔑 추출된 키워드: {keywords}")
-            return keywords
-        return "science, technology" # 실패 시 기본 키워드
+        resp = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, headers={'Content-Type': 'application/json'})
+        return resp.json()['candidates'][0]['content']['parts'][0]['text'].strip()
     except:
         return "science, technology"
 
 # =========================================================
-# [신규 함수 4] Pexels에서 관련 WebP 이미지 2장 가져오기
+# [함수 4] 이미지 검색
 # =========================================================
 def get_relevant_images_webp(query):
-    print(f"🖼️ Pexels에서 이미지 검색 중... Query: {query}")
-    url = "https://api.pexels.com/v1/search"
-    headers = {"Authorization": PEXELS_API_KEY}
-    params = {
-        "query": query,
-        "per_page": 2,     # 2장만 요청
-        "orientation": "landscape", # 가로 사진 선호
-        "size": "medium"   # 적당한 크기
-    }
-    
+    print(f"🖼️ Pexels 이미지 검색: {query}")
     try:
-        response = requests.get(url, headers=headers, params=params)
-        if response.status_code == 200:
-            data = response.json()
-            image_urls = []
-            for photo in data.get('photos', []):
-                # 원본 URL에 파라미터를 붙여 WebP 형식으로 변환
-                base_url = photo['src']['original']
-                webp_url = f"{base_url}?auto=compress&fm=webp&w=800"
-                image_urls.append(webp_url)
-            
-            if len(image_urls) >= 2:
-                 print("✅ 이미지 2장 확보 완료 (WebP)")
-                 return image_urls
-            else:
-                 print("⚠️ 관련 이미지를 충분히 찾지 못했습니다.")
-                 return []
-        else:
-            print(f"⛔ Pexels API 오류: {response.status_code}")
-            return []
+        resp = requests.get("https://api.pexels.com/v1/search", headers={"Authorization": PEXELS_API_KEY}, params={"query": query, "per_page": 2, "orientation": "landscape", "size": "medium"})
+        if resp.status_code == 200:
+            urls = [p['src']['original'] + "?auto=compress&fm=webp&w=800" for p in resp.json().get('photos', [])]
+            print(f"✅ 이미지 {len(urls)}장 확보")
+            return urls
     except Exception as e:
-        print(f"⛔ 이미지 검색 중 오류: {e}")
-        return []
+        print(f"⛔ 이미지 검색 에러: {e}")
+    return []
 
 # =========================================================
-# [함수 5] (개선됨) CoT 및 이미지 삽입 글 작성
+# [함수 5] ★수정됨★ 글 작성 및 '박스 뜯기'
 # =========================================================
 def generate_deep_content_with_images(news, image_urls):
-    print(f"🧠 AI({MODEL_NAME})가 이미지 배치를 포함한 글 작성을 시작합니다...")
-    
+    print(f"🧠 AI({MODEL_NAME})가 글 작성 중...")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
     
-    # 이미지 태그 준비 (이미지가 있을 경우에만)
-    img_tag1 = f'<img src="{image_urls[0]}" alt="기사 관련 이미지 1" style="width:100%; height:auto; margin: 20px 0; border-radius: 8px;">' if len(image_urls) > 0 else ""
-    img_tag2 = f'<img src="{image_urls[1]}" alt="기사 관련 이미지 2" style="width:100%; height:auto; margin: 20px 0; border-radius: 8px;">' if len(image_urls) > 1 else ""
+    img1 = f'<img src="{image_urls[0]}" alt="img1" style="width:100%; border-radius:10px; margin:20px 0;">' if len(image_urls)>0 else ""
+    img2 = f'<img src="{image_urls[1]}" alt="img2" style="width:100%; border-radius:10px; margin:20px 0;">' if len(image_urls)>1 else ""
 
     prompt = f"""
     당신은 과학 전문 칼럼니스트입니다. 아래 뉴스에 대해 깊이 있는 해설 글을 HTML로 작성하세요.
@@ -126,11 +90,14 @@ def generate_deep_content_with_images(news, image_urls):
     [뉴스 정보]
     제목: {news.title}
     링크: {news.link}
-
-    [지시사항]
-    1. **Chain of Thought**: 먼저 뉴스 속 핵심 과학 원리를 파악하고, 기초 지식을 백과사전처럼 자세히 설명한 뒤, 뉴스 내용과 연결하세요.
-    2. **팩트 체크**: 과학적 오류가 없도록 주의하세요.
-    3. **이미지 배치**: 아래 제공된 2개의 이미지 태그를 글의 문맥에 맞는 적절한 위치(문단 사이)에 자연스럽게 삽입하세요. (반드시 2개 모두 사용할 것)
+    
+    [작성 절차 (Chain of Thought)]
+    글을 쓰기 전에 다음 단계를 머릿속으로 먼저 수행하세요:
+    1. **키워드 분석**: 뉴스 제목에서 핵심 과학 개념(예: 양자 얽힘, 효소 작용, 블랙홀 등)을 추출하십시오.
+    2. **배경 지식 확장**: 해당 개념의 교과서적인 정의, 원리, 발견 역사를 떠올리십시오.
+    3. **연결**: 이 기초 과학 원리가 뉴스 속 최신 발견과 어떻게 연결되는지 논리적으로 구성하십시오.
+    4. **팩트 체크**: 작성된 내용에 비과학적 비약이나 오류가 없는지 스스로 검증하십시오.
+    5. **이미지 배치**: 아래 제공된 2개의 이미지 태그를 글의 문맥에 맞는 적절한 위치(문단 사이)에 자연스럽게 삽입하세요. (반드시 2개 모두 사용할 것)
        - 이미지 태그 1: {img_tag1}
        - 이미지 태그 2: {img_tag2}
 
@@ -145,68 +112,63 @@ def generate_deep_content_with_images(news, image_urls):
     - <p>분석 내용</p>
     - <p>결론 및 의의</p>
     - <p><small>원문 뉴스: {news.title}</small></p>
+    
+    [필수 형식]
+    HTML 태그(<h2>, <p>, <ul>, <li> 등)만 출력하세요. 
+    마크다운 코드 블록(```html)은 절대 사용하지 마세요.
+
+    [주의사항]
+    - 말투는 친절하고 명확한 '해요체'를 사용하세요.
+    - 과학적 사실이 불확실한 경우 단정 짓지 말고 "추정됩니다" 또는 "연구 중입니다"라고 표현하세요.
     """
     
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.3}
-    }
-    headers = {'Content-Type': 'application/json'}
+    payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.3}}
     
-    for attempt in range(3):
+    for _ in range(3):
         try:
-            response = requests.post(url, json=payload, headers=headers)
-            if response.status_code == 200:
-                data = response.json()
+            res = requests.post(url, json=payload, headers={'Content-Type': 'application/json'})
+            if res.status_code == 200:
+                data = res.json()
                 if 'candidates' in data:
-                    return data['candidates'][0]['content']['parts'][0]['text']
-                else: return None
-            elif response.status_code == 429:
-                print(f"⏳ 사용량 제한! 30초 대기... ({attempt+1}/3)")
+                    content = data['candidates'][0]['content']['parts'][0]['text']
+                    
+                    # ★★★ 여기가 핵심 수정 부분입니다! ★★★
+                    # AI가 씌운 마크다운 박스(```html ... ```)를 강제로 벗겨냅니다.
+                    content = content.replace("```html", "").replace("```", "").strip()
+                    
+                    return content
+            elif res.status_code == 429:
                 time.sleep(30)
-            else:
-                print(f"⛔ 에러: {response.text}")
-                return None
-        except Exception as e:
-            print(f"⛔ 통신 에러: {e}")
+        except:
             time.sleep(5)
     return None
 
 # =========================================================
-# [메인 실행 함수]
+# [메인 실행]
 # =========================================================
 def run_bot():
     try:
-        # 1. 가장 화제인 뉴스 가져오기
         news = get_top_science_news()
-        if not news:
-            print("❌ 뉴스를 찾을 수 없습니다.")
-            return
-
-        # 2. 이미지 검색을 위한 키워드 추출
-        keywords = get_search_keywords(news.title)
+        if not news: return
         
-        # 3. Pexels에서 WebP 이미지 가져오기
-        image_urls = get_relevant_images_webp(keywords)
-
-        # 4. 이미지 포함하여 글 작성 요청
-        content = generate_deep_content_with_images(news, image_urls)
+        keywords = get_search_keywords(news.title)
+        images = get_relevant_images_webp(keywords)
+        content = generate_deep_content_with_images(news, images)
+        
         if not content:
-            print("❌ 글 작성 실패.")
+            print("❌ 글 작성 실패")
             return
 
-        # 5. 블로그 업로드
-        print("📤 블로그 업로드 준비 중...")
+        print("📤 블로그 업로드 중...")
         creds = Credentials.from_authorized_user_info(TOKEN_JSON)
         service = build('blogger', 'v3', credentials=creds)
         
-        blog_title = f"[과학칼럼] {news.title}"
-        body = {"kind": "blogger#post", "title": blog_title, "content": content}
+        body = {"kind": "blogger#post", "title": f"[과학칼럼] {news.title}", "content": content}
         service.posts().insert(blogId=BLOG_ID, body=body).execute()
-        print("🎉 포스팅 완료! (화제 뉴스 + 심층 분석 + WebP 이미지 2장)")
+        print("🎉 포스팅 성공!")
         
     except Exception as e:
-        print(f"⛔ 치명적 오류 발생: {e}")
+        print(f"⛔ 치명적 오류: {e}")
         exit(1)
 
 if __name__ == "__main__":
