@@ -28,49 +28,10 @@ except Exception as e:
     exit(1)
 
 # =========================================================
-# [핵심 함수 1] 사용 가능한 최신 Gemini 모델 자동 탐색
+# [핵심 함수 1] 사용 가능한 최신 Gemini 모델 내가 고정함
 # =========================================================
-def select_best_model():
-    base_url = "https://generativelanguage.googleapis.com/v1beta/models"
-    target_version = "gemini-3-flash" # ★ 사용자가 원하는 목표 버전
-    
-    try:
-        print(f"📡 모델 리스트를 조회하여 '{target_version}'을 찾습니다...")
-        response = requests.get(f"{base_url}?key={GEMINI_API_KEY}")
-        
-        if response.status_code == 200:
-            models = response.json().get('models', [])
-            
-            # 1. 모델 이름만 깔끔하게 리스트로 추출 (models/ 접두어 제거)
-            available_models = [
-                m['name'].replace('models/', '') 
-                for m in models 
-                if 'generateContent' in m['supportedGenerationMethods']
-            ]
-            
-            # 2. 3.0 버전이 있는지 확인 (정확히 일치하는지)
-            if target_version in available_models:
-                print(f"🚀 와우! {target_version} 모델을 발견했습니다. 즉시 적용합니다!")
-                return target_version
-            
-            # 3. 3.0이 없다면 'flash'가 들어간 최신 모델 자동 선택
-            print(f"⚠️ 아직 {target_version}이 배포되지 않았습니다. 차선책을 찾습니다.")
-            flash_models = [m for m in available_models if 'flash' in m]
-            
-            # 리스트 맨 뒤에 있는 게 보통 최신 버전입니다 (예: 2.0, 2.5...)
-            best_fallback = flash_models[-1] if flash_models else "gemini-2.5-flash"
-            print(f"🤖 대체 선택된 모델: {best_fallback}")
-            return best_fallback
-            
-        else:
-            print(f"⚠️ 모델 리스트 조회 실패(Code {response.status_code}). 안전한 1.5 버전을 씁니다.")
-            return "gemini-1.5-flash"
-            
-    except Exception as e:
-        print(f"⚠️ 모델 탐색 중 에러: {e}. 안전한 1.5 버전을 씁니다.")
-        return "gemini-1.5-flash"
 
-MODEL_NAME = select_best_model()
+MODEL_NAME = "gemini-3-flash"
 
 # =========================================================
 # [핵심 함수 2] 뉴스 가져오기
@@ -193,4 +154,5 @@ def run_bot():
 
 if __name__ == "__main__":
     run_bot()
+
 
