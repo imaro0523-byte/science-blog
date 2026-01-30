@@ -73,9 +73,50 @@ def get_relevant_images_webp(query):
     except Exception as e:
         print(f"⛔ 이미지 검색 에러: {e}")
     return []
-
 # =========================================================
-# [함수 5] ★수정됨★ 글 작성 및 '박스 뜯기'
+# [함수 5] (신규) 후킹 제목 생성 함수
+# =========================================================
+def generate_viral_title(news_title):
+    print("🎣 AI가 클릭을 유도하는 제목을 짓고 있습니다...")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
+    
+    prompt = f"""
+    너는 베테랑 과학 에디터야. 아래 뉴스 제목을 블로그용으로 매력적으로 다시 써줘.
+    
+    [원래 제목]
+    {news_title}
+    
+    [제목 작성 규칙]
+    1. **후킹(Hooking)**: 사람들의 호기심이나 궁금증을 강하게 자극하는 질문이나 문장으로 시작해. (존댓말 사용)
+    2. **과학 원리**: 그 뒤에 괄호 '()'를 치고, 이 뉴스와 관련된 핵심 과학 용어나 이론을 짧게 적어.
+    3. 따옴표나 불필요한 특수문자는 쓰지 마.
+    
+    [예시]
+    - 원제: 커피가 심장병 위험 낮춘다
+    -> 매일 마시는 이것, 사실 심장을 살린다? (폴리페놀 효과)
+    - 원제: 제임스 웹 망원경, 가장 오래된 은하 관측
+    -> 우주의 시작을 찍었다, 시간 여행의 증거일까 (빅뱅 이론)
+    
+    [출력]
+    오직 완성된 제목 한 줄만 출력해.
+    """
+    
+    payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.7}} # 창의성을 위해 온도 약간 높임
+    
+    try:
+        res = requests.post(url, json=payload, headers={'Content-Type': 'application/json'})
+        if res.status_code == 200:
+            new_title = res.json()['candidates'][0]['content']['parts'][0]['text'].strip()
+            # 혹시 모를 따옴표 제거
+            new_title = new_title.replace('"', '').replace("'", "")
+            print(f"✨ 생성된 제목: {new_title}")
+            return new_title
+    except Exception as e:
+        print(f"⚠️ 제목 생성 실패(원래 제목 사용): {e}")
+    
+    return news_title # 실패 시 원래 제목 반환
+# =========================================================
+# [함수 6] 글 작성 및 '박스 뜯기'
 # =========================================================
 def generate_deep_content_with_images(news, image_urls):
     print(f"🧠 AI({MODEL_NAME})가 글 작성 중...")
@@ -173,4 +214,5 @@ def run_bot():
 
 if __name__ == "__main__":
     run_bot()
+
 
