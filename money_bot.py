@@ -11,26 +11,23 @@ from googleapiclient.discovery import build
 # =========================================================
 print("🔧 환경변수 점검 중...")
 
-# 1. API 키 확인
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 PEXELS_API_KEY = os.environ.get('PEXELS_API_KEY')
 
-# 2. 블로그 ID 확인 (이름이 다를 경우를 대비해 2가지 다 체크)
-BLOG_ID = os.environ.get('MONEY_BLOG_ID')
+# 블로그 ID 확인 (이름이 다를 경우를 대비해 3중 체크)
+BLOG_ID = os.environ.get('MONEY_BLOG_ID') or os.environ.get('BLOG_ID') or os.environ.get('B_ID')
 
-# 3. 필수값 검증 (시작 전에 미리 체크해서 시간 낭비 방지)
+# 필수값 검증
 if not GEMINI_API_KEY:
     print("❌ [오류] GEMINI_API_KEY가 없습니다.")
     exit(1)
 if not BLOG_ID:
     print("❌ [오류] BLOG_ID(또는 MONEY_BLOG_ID)가 설정되지 않았습니다. GitHub Secrets를 확인하세요.")
     exit(1)
-if not PEXELS_API_KEY:
-    print("⚠️ [주의] PEXELS_API_KEY가 없습니다. 이미지가 없이 글만 작성됩니다.")
 
-print(f"✅ 블로그 ID 확인됨: {BLOG_ID[:3]}*****")
+print(f"✅ 타겟 블로그 ID: {BLOG_ID[:5]}*****")
 
-# 4. 구글 인증 토큰 로딩
+# 구글 인증 토큰 로딩
 try:
     client_env = os.environ.get('CLIENT_JSON')
     token_env = os.environ.get('TOKEN_JSON')
@@ -40,7 +37,7 @@ try:
 except Exception as e:
     print(f"⛔ 설정 로딩 에러: {e}")
 
-MODEL_NAME = "gemini-3-flash-preview"
+MODEL_NAME = "gemini-2.5-flash"
 
 # =========================================================
 # [함수 1] 대시보드 데이터 생성 (HTML 생성기)
@@ -66,7 +63,7 @@ def get_dashboard_html():
         pass
 
     # HTML 조립
-    btc_color = "red" if btc_chg >= 0 else "blue"
+    btc_color = "#d63031" if btc_chg >= 0 else "#0984e3" # 빨강/파랑
     btc_arrow = "▲" if btc_chg >= 0 else "▼"
     
     fng_emoji = "😐"
@@ -74,20 +71,22 @@ def get_dashboard_html():
     elif fng <= 25: fng_emoji = "🥶 공포"
 
     html = f"""
-    <div style="background: #f8f9fa; border: 2px solid #333; border-radius: 12px; padding: 15px; margin-bottom: 25px; font-family: sans-serif;">
-        <h3 style="text-align:center; margin:0 0 10px 0; color:#333;">🚀 머니 브리핑</h3>
-        <div style="display:flex; justify-content:space-around; text-align:center;">
+    <div style="background: #ffffff; border: 1px solid #e0e0e0; border-left: 5px solid #2d3436; border-radius: 8px; padding: 20px; margin-bottom: 30px; font-family: sans-serif; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+        <h3 style="text-align:center; margin:0 0 15px 0; color:#2d3436; font-size: 18px;">📊 Today's Market Pulse</h3>
+        <div style="display:flex; justify-content:space-around; text-align:center; border-top: 1px dashed #e0e0e0; padding-top: 15px;">
             <div>
-                <div style="font-size:12px; color:#555;">비트코인</div>
-                <div style="color:{btc_color}; font-weight:bold; font-size:16px;">{btc_arrow} {btc:,.0f}원</div>
+                <div style="font-size:13px; color:#636e72; margin-bottom: 5px;">Bitcoin (KRW)</div>
+                <div style="color:{btc_color}; font-weight:bold; font-size:18px;">{btc_arrow} {btc:,.0f}원</div>
+                <div style="font-size:12px; color:{btc_color};">({btc_chg:.2f}%)</div>
             </div>
+            <div style="border-left: 1px solid #eee;"></div>
             <div>
-                <div style="font-size:12px; color:#555;">공포지수</div>
-                <div style="font-weight:bold; font-size:16px;">{fng}점 {fng_emoji}</div>
+                <div style="font-size:13px; color:#636e72; margin-bottom: 5px;">Fear & Greed</div>
+                <div style="font-weight:bold; font-size:18px; color:#2d3436;">{fng} <span style="font-size:16px;">{fng_emoji}</span></div>
+                <div style="font-size:12px; color:#636e72;">Index Score</div>
             </div>
         </div>
     </div>
-    <br>
     """
     return html
 
@@ -126,7 +125,7 @@ def check_is_duplicate(service, news_title):
 # =========================================================
 def get_search_keywords(news_title):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
-    prompt = f"뉴스 제목: '{news_title}'. 핵심 영어 키워드 3개만 콤마로 구분해. (예: Bitcoin, Economy)"
+    prompt = f"뉴스 제목: '{news_title}'. 핵심 영어 키워드 3개만 콤마로 구분해. (예: Bitcoin, Economy, Inflation)"
     try:
         resp = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, headers={'Content-Type': 'application/json'})
         return resp.json()['candidates'][0]['content']['parts'][0]['text'].strip()
@@ -159,36 +158,45 @@ def get_relevant_images_webp(query):
     return []
 
 # =========================================================
-# [함수 6] 본문 작성 (치환 방식)
+# [함수 6] 본문 작성 (인사이트 중심 프롬프트로 변경)
 # =========================================================
 def generate_content_safe(news, image_urls, dashboard_html):
-    print(f"🧠 AI가 글을 작성합니다...")
+    print(f"🧠 AI가 심층 분석(Insight) 글을 작성합니다...")
     
     img_tag = ""
     if image_urls:
-        img_tag = f'<img src="{image_urls[0]}" alt="Money Image" style="width:100%; border-radius:10px; margin:20px 0;">'
+        img_tag = f'<img src="{image_urls[0]}" alt="Insight Image" style="width:100%; border-radius:8px; margin:25px 0; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">'
     
+    # ★ 핵심 수정: 투자 조언 대신 '배경 분석'과 '인사이트' 요청
     prompt = f"""
-    투자 전문가 페르소나로 글을 작성해.
+    당신은 20년 경력의 '글로벌 경제 수석 애널리스트'입니다.
+    아래 뉴스를 단순히 요약하지 말고, 이면의 배경과 앞으로 미칠 파급력을 심층 분석해 주세요.
+    마치 추가 조사를 수행한 것처럼 깊이 있는 정보를 제공해야 합니다.
+
+    [뉴스 정보]
+    - 제목: {news.title}
+    - 링크: {news.link}
     
-    [뉴스]: {news.title}
-    [링크]: {news.link}
+    [작성 가이드라인]
+    1. '사라/마라' 식의 직접적인 투자 조언은 지양합니다.
+    2. 대신, 독자가 현상을 꿰뚫어 볼 수 있는 '통찰력(Insight)'을 제공하세요.
+    3. 전문적인 용어는 쉽게 풀어서 설명하세요.
+    4. 문체는 정중하고 지적인 '해요체'를 사용하세요. (예: "분석됩니다.", "주목할 필요가 있습니다.")
     
-    [출력 포맷 - HTML]
-    1. 맨 첫 줄에 정확히 [[DASHBOARD]] 라고만 적어. (나중에 내가 표를 넣을 곳임)
-    2. <p> (도입부: "지금 놓치면 후회합니다" 같은 강렬한 훅)</p>
-    3. {img_tag} (이 이미지 태그를 적절한 위치에 그대로 넣어)
-    4. <h2>팩트 체크: 돈의 흐름</h2>
-    5. <p> (뉴스 분석 내용)</p>
-    6. <h2>투자 전략: 대응 방법</h2>
-    7. <p> (공격적/보수적 투자자 대응법)</p>
-    8. <p style="color:grey; font-size:0.8em;">(본 콘텐츠는 투자 조언이 아닙니다.)</p>
+    [글 구조 (HTML 포맷)]
+    1. 맨 첫 줄에 정확히 [[DASHBOARD]] 라고만 적으세요.
+    2. <h3>프롤로그</h3>: 뉴스의 핵심을 요약하고, 왜 이 이슈가 지금 중요한지 화두를 던지세요.
+    3. {img_tag} (이 코드를 적절한 위치에 그대로 삽입)
+    4. <h3>심층 분석: 뉴스의 이면</h3>: 이 뉴스가 발생한 배경, 과거 사례와의 비교, 혹은 숨겨진 상관관계를 설명하세요. (당신의 지식을 총동원하세요)
+    5. <h3>향후 전망 및 인사이트</h3>: 이 사건이 시장(주식/코인/경제)에 미칠 장기적인 영향과 시나리오를 제시하세요.
+    6. <hr>
+    7. <p style="color:#7f8c8d; font-size:0.85em; text-align:center;">(본 콘텐츠는 AI 기반의 분석 자료이며, 투자의 책임은 전적으로 본인에게 있습니다.)</p>
     
-    HTML 코드만 출력해. 마크다운 쓰지 마.
+    HTML 태그(h3, p, hr 등)만 출력하세요. 마크다운(```)은 사용 금지.
     """
     
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
-    payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.3}}
+    url = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
+    payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.4}} # temperature 약간 높여서 창의성 부여
     
     for i in range(3):
         try:
@@ -197,7 +205,7 @@ def generate_content_safe(news, image_urls, dashboard_html):
                 raw_text = res.json()['candidates'][0]['content']['parts'][0]['text']
                 clean_text = raw_text.replace("```html", "").replace("```", "").strip()
                 
-                # ★ 대시보드 교체
+                # 대시보드 교체
                 final_content = clean_text.replace("[[DASHBOARD]]", dashboard_html)
                 return final_content
             else:
@@ -210,14 +218,32 @@ def generate_content_safe(news, image_urls, dashboard_html):
     return None
 
 # =========================================================
-# [함수 7] 제목 생성
+# [함수 7] 제목 생성 (** 제거 기능 추가)
 # =========================================================
 def generate_viral_title(news_title):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
-    prompt = f"뉴스 제목: '{news_title}'. 유튜브 썸네일 스타일의 자극적인 제목 1개만 뽑아줘. (괄호 사용, 질문형 등)"
+    url = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
+    
+    # 프롬프트도 약간 수정: 너무 자극적인 어그로보다는 '지적 호기심' 자극
+    prompt = f"""
+    뉴스 제목: '{news_title}'
+    
+    이 뉴스를 다룬 블로그 포스팅의 제목을 지어주세요.
+    단순한 속보 전달보다는, '분석'과 '인사이트'가 담겨 있다는 느낌을 주는 매력적인 제목이어야 합니다.
+    
+    [예시]
+    - 엔비디아 급등 -> 엔비디아 급등, AI 버블일까 새로운 챕터일까? (심층 분석)
+    - 금리 동결 -> 금리 동결의 진짜 의미, 시장은 이미 답을 알고 있다
+    
+    [제약]
+    따옴표나 ** 같은 특수문자는 절대 쓰지 마세요. 제목 한 줄만 출력하세요.
+    """
     try:
         res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, headers={'Content-Type': 'application/json'})
-        return res.json()['candidates'][0]['content']['parts'][0]['text'].strip().replace('"', '')
+        title = res.json()['candidates'][0]['content']['parts'][0]['text'].strip()
+        
+        # ★ 핵심 수정: 제목에 **가 붙어서 나오는 문제 해결
+        clean_title = title.replace('"', '').replace("'", "").replace("**", "").replace("__", "")
+        return clean_title
     except:
         return news_title
 
@@ -225,9 +251,8 @@ def generate_viral_title(news_title):
 # [메인 실행]
 # =========================================================
 def run_bot():
-    print("▶️ 머니 봇 시작")
+    print("▶️ 머니 인사이트 봇 시작")
     try:
-        # 인증 객체 생성
         creds = Credentials.from_authorized_user_info(TOKEN_JSON)
         service = build('blogger', 'v3', credentials=creds)
 
@@ -262,10 +287,9 @@ def run_bot():
             print("❌ 본문 생성 실패. 종료.")
             return
 
-        # 4. 제목 및 업로드 (★ 여기서 BLOG_ID가 꼭 필요함)
+        # 4. 제목 및 업로드
         title = generate_viral_title(target_news.title)
         print(f"📤 업로드 진행: {title}")
-        print(f"   (타겟 블로그 ID: {BLOG_ID})")
         
         body = {"kind": "blogger#post", "title": title, "content": content}
         service.posts().insert(blogId=BLOG_ID, body=body).execute()
