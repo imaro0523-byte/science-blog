@@ -175,4 +175,92 @@ def generate_content_safe(news, image_urls, dashboard_html):
     HTML 코드만 출력해. 마크다운 쓰지 마.
     """
     
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
+    payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.3}}
+    
+    for i in range(3):
+        try:
+            res = requests.post(url, json=payload, headers={'Content-Type': 'application/json'})
+            if res.status_code == 200:
+                raw_text = res.json()['candidates'][0]['content']['parts'][0]['text']
+                # 마크다운 제거
+                clean_text = raw_text.replace("```html", "").replace("```", "").strip()
+                
+                # ★ 여기서 파이썬이 대시보드 HTML로 교체 (안전함)
+                final_content = clean_text.replace("[[DASHBOARD]]", dashboard_html)
+                return final_content
+            else:
+                print("⏳ AI 응답 대기 중...")
+                time.sleep(5)
+        except Exception as e:
+            print(f"⚠️ 작성 중 에러: {e}")
+            time.sleep(5)
+            
+    return None
+
+# =========================================================
+# [함수 7] 제목 생성
+# =========================================================
+def generate_viral_title(news_title):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
+    prompt = f"뉴스 제목: '{news_title}'. 유튜브 썸네일 스타일의 자극적인 제목 1개만 뽑아줘. (괄호 사용, 질문형 등)"
+    try:
+        res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, headers={'Content-Type': 'application/json'})
+        return res.json()['candidates'][0]['content']['parts'][0]['text'].strip().replace('"', '')
+    except:
+        return news_title
+
+# =========================================================
+# [메인 실행]
+# =========================================================
+def run_bot():
+    print("▶️ 머니 봇 시작")
+    try:
+        creds = Credentials.from_authorized_user_info(TOKEN_JSON)
+        service = build('blogger', 'v3', credentials=creds)
+
+        # 1. 뉴스 확보
+        news_list = get_tech_news_list()
+        if not news_list:
+            print("❌ 뉴스 리스트가 비어있습니다. 종료.")
+            return
+
+        target_news = None
+        for news in news_list:
+            print(f"🔎 체크: {news.title}")
+            if check_is_duplicate(service, news.title):
+                print("   ↪️ 중복. 패스.")
+            else:
+                target_news = news
+                print("   ✅ 선택됨!")
+                break
+        
+        if not target_news:
+            print("😴 작성할 새로운 뉴스가 없습니다. 종료.")
+            return
+
+        # 2. 리소스 준비
+        keywords = get_search_keywords(target_news.title)
+        images = get_relevant_images_webp(keywords)
+        dashboard = get_dashboard_html() # 대시보드 미리 생성
+
+        # 3. 글 작성 (치환 방식)
+        content = generate_content_safe(target_news, images, dashboard)
+        if not content:
+            print("❌ 본문 생성 실패 (AI 응답 없음). 종료.")
+            return
+
+        # 4. 제목 및 업로드
+        title = generate_viral_title(target_news.title)
+        print(f"📤 업로드 진행: {title}")
+        
+        body = {"kind": "blogger#post", "title": title, "content": content}
+        service.posts().insert(blogId=BLOG_ID, body=body).execute()
+        print("🎉 포스팅 성공!")
+
+    except Exception as e:
+        print(f"⛔ 치명적 오류 발생: {e}")
+        exit(1)
+
+if __name__ == "__main__":
+    run_bot()
