@@ -37,7 +37,7 @@ try:
 except Exception as e:
     print(f"⛔ 설정 로딩 에러: {e}")
 
-MODEL_NAME = "gemini-3-pro-preview"
+MODEL_NAME = "gemini-2.5-flash"
 
 # =========================================================
 # [함수 1] 대시보드 데이터 생성 (HTML 생성기)
