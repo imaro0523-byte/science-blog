@@ -27,7 +27,7 @@ except Exception as e:
     exit(1)
 
 # =========================================================
-# [함수 1] 모델 선택
+# [함수 1] 모델 선택 (Gemini 2.5 Flash 고정)
 # =========================================================
 
 MODEL_NAME = "gemini-2.5-flash"
@@ -73,6 +73,7 @@ def get_relevant_images_webp(query):
     except Exception as e:
         print(f"⛔ 이미지 검색 에러: {e}")
     return []
+
 # =========================================================
 # [함수 5] (신규) 후킹 제목 생성 함수
 # =========================================================
@@ -115,11 +116,12 @@ def generate_viral_title(news_title):
         print(f"⚠️ 제목 생성 실패(원래 제목 사용): {e}")
     
     return news_title # 실패 시 원래 제목 반환
+
 # =========================================================
 # [함수 6] 글 작성 및 '박스 뜯기'
 # =========================================================
 def generate_deep_content_with_images(news, image_urls):
-    print(f"🧠 AI({MODEL_NAME})가 글 작성 중...")
+    print(f"🧠 AI({MODEL_NAME})가 본문 작성 중...")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
     
     img1 = f'<img src="{image_urls[0]}" alt="img1" style="width:100%; border-radius:10px; margin:20px 0;">' if len(image_urls)>0 else ""
@@ -172,11 +174,7 @@ def generate_deep_content_with_images(news, image_urls):
                 data = res.json()
                 if 'candidates' in data:
                     content = data['candidates'][0]['content']['parts'][0]['text']
-                    
-                    # ★★★ 여기가 핵심 수정 부분입니다! ★★★
-                    # AI가 씌운 마크다운 박스(```html ... ```)를 강제로 벗겨냅니다.
                     content = content.replace("```html", "").replace("```", "").strip()
-                    
                     return content
             elif res.status_code == 429:
                 time.sleep(30)
@@ -189,24 +187,32 @@ def generate_deep_content_with_images(news, image_urls):
 # =========================================================
 def run_bot():
     try:
+        # 1. 뉴스 가져오기
         news = get_top_science_news()
         if not news: return
         
+        # 2. 키워드 및 이미지 가져오기
         keywords = get_search_keywords(news.title)
         images = get_relevant_images_webp(keywords)
-        content = generate_deep_content_with_images(news, images)
         
+        # 3. 본문 작성
+        content = generate_deep_content_with_images(news, images)
         if not content:
             print("❌ 글 작성 실패")
             return
 
+        # 4. ★제목 새로 짓기 (추가된 부분)★
+        final_title = generate_viral_title(news.title)
+
+        # 5. 블로그 업로드
         print("📤 블로그 업로드 중...")
         creds = Credentials.from_authorized_user_info(TOKEN_JSON)
         service = build('blogger', 'v3', credentials=creds)
         
-        body = {"kind": "blogger#post", "title": f"[과학칼럼] {news.title}", "content": content}
+        # 여기서 [과학칼럼] 대신 새로 만든 제목(final_title)을 사용합니다.
+        body = {"kind": "blogger#post", "title": final_title, "content": content}
         service.posts().insert(blogId=BLOG_ID, body=body).execute()
-        print("🎉 포스팅 성공!")
+        print(f"🎉 포스팅 성공! 제목: {final_title}")
         
     except Exception as e:
         print(f"⛔ 치명적 오류: {e}")
@@ -214,5 +220,3 @@ def run_bot():
 
 if __name__ == "__main__":
     run_bot()
-
-
