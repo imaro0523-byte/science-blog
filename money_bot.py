@@ -10,7 +10,7 @@ from googleapiclient.discovery import build
 # [설정 구역] GitHub Secrets 가져오기
 # =========================================================
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
-BLOG_ID = os.environ.get('MONEY_BLOG_ID')
+BLOG_ID = os.environ.get('MONEY_BLOG_ID') # 머니 블로그 ID 확인
 PEXELS_API_KEY = os.environ.get('PEXELS_API_KEY')
 
 try:
@@ -26,13 +26,61 @@ except Exception as e:
     print(f"⛔ 설정 로딩 에러: {e}")
     exit(1)
 
-# =========================================================
-# [함수 1] 모델 선택
-# =========================================================
 MODEL_NAME = "gemini-2.5-flash"
 
 # =========================================================
-# [함수 2] 금융경제 뉴스 리스트 가져오기 (RSS URL 변경됨)
+# [함수 1] 대시보드 데이터 생성 (누락된 기능 복구)
+# =========================================================
+def get_dashboard_html():
+    print("📊 시장 데이터(코인/공포지수) 수집 중...")
+    btc, btc_chg, fng, fng_class = 0, 0, 0, "Unknown"
+    
+    # 1. CoinGecko (비트코인 가격)
+    try:
+        url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=krw&include_24hr_change=true"
+        res = requests.get(url, timeout=5).json()
+        btc = res['bitcoin']['krw']
+        btc_chg = res['bitcoin']['krw_24h_change']
+    except:
+        pass
+
+    # 2. Alternative.me (공포/탐욕 지수)
+    try:
+        fng_res = requests.get("https://api.alternative.me/fng/", timeout=5).json()
+        fng = int(fng_res['data'][0]['value'])
+        fng_class = fng_res['data'][0]['value_classification']
+    except:
+        pass
+
+    # HTML 생성
+    btc_color = "red" if btc_chg >= 0 else "blue"
+    btc_arrow = "▲" if btc_chg >= 0 else "▼"
+    
+    fng_emoji = "😐"
+    if fng >= 75: fng_emoji = "🔥 극단적 탐욕 (매도 주의)"
+    elif fng >= 55: fng_emoji = "😋 탐욕 (불장)"
+    elif fng <= 25: fng_emoji = "🥶 극단적 공포 (저점 매수?)"
+    elif fng <= 45: fng_emoji = "😨 공포"
+
+    html = f"""
+    <div style="background: #f8f9fa; border: 2px solid #333; border-radius: 12px; padding: 15px; margin-bottom: 25px; font-family: sans-serif;">
+        <h3 style="text-align:center; margin:0 0 10px 0; color:#333;">🚀 실시간 머니 브리핑</h3>
+        <div style="display:flex; justify-content:space-around; text-align:center;">
+            <div>
+                <div style="font-size:12px; color:#555;">비트코인 (BTC)</div>
+                <div style="color:{btc_color}; font-weight:bold; font-size:16px;">{btc_arrow} {btc:,.0f}원 <br><small>({btc_chg:.2f}%)</small></div>
+            </div>
+            <div>
+                <div style="font-size:12px; color:#555;">공포/탐욕 지수</div>
+                <div style="font-weight:bold; font-size:16px;">{fng}점 <br><small>{fng_emoji}</small></div>
+            </div>
+        </div>
+    </div>
+    """
+    return html
+
+# =========================================================
+# [함수 2] 금융경제 뉴스 리스트 가져오기
 # =========================================================
 def get_tech_news_list():
     print("🔍 구글 뉴스 [금융] 섹션 헤드라인 검색...")
@@ -41,7 +89,7 @@ def get_tech_news_list():
         feed = feedparser.parse(rss_url)
         if feed.entries:
             top_5_news = feed.entries[:5]
-            print(f"✅ 총 {len(top_5_news)}개의 최신 테크 뉴스를 가져왔습니다.")
+            print(f"✅ 총 {len(top_5_news)}개의 최신 뉴스를 가져왔습니다.")
             return top_5_news
     except Exception as e:
         print(f"⛔ 뉴스 검색 에러: {e}")
@@ -63,40 +111,49 @@ def check_is_duplicate(service, news_title):
         return False
 
 # =========================================================
-# [함수 4] 키워드 추출 (테크 용어 위주)
+# [함수 4] 키워드 추출
 # =========================================================
 def get_search_keywords(news_title):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
-    prompt = f"뉴스 제목: '{news_title}'. 이 뉴스의 핵심 '영어' 테크 키워드 3개를 콤마로 구분해줘. (예: AI, Smartphone, Semiconductor)"
+    prompt = f"뉴스 제목: '{news_title}'. 이 뉴스의 핵심 '영어' 경제 키워드 3개를 콤마로 구분해줘. (예: Bitcoin, Stock, Gold)"
     try:
         resp = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, headers={'Content-Type': 'application/json'})
         return resp.json()['candidates'][0]['content']['parts'][0]['text'].strip()
     except:
-        return "technology, innovation"
+        return "money, business"
 
 # =========================================================
-# [함수 5] 이미지 검색
+# [함수 5] 이미지 검색 (URL 에러 수정 완료)
 # =========================================================
 def get_relevant_images_webp(query):
     print(f"🖼️ Pexels 이미지 검색: {query}")
     try:
-        resp = requests.get("https://api.pexels.com/v1/search", headers={"Authorization": PEXELS_API_KEY}, params={"query": query, "per_page": 2, "orientation": "landscape", "size": "medium"})
+        # URL에 마크다운이나 대괄호가 들어가지 않도록 주의
+        url = "https://api.pexels.com/v1/search"
+        headers = {"Authorization": PEXELS_API_KEY}
+        params = {"query": query, "per_page": 2, "orientation": "landscape", "size": "medium"}
+        
+        resp = requests.get(url, headers=headers, params=params)
+        
         if resp.status_code == 200:
             urls = [p['src']['original'] + "?auto=compress&fm=webp&w=800" for p in resp.json().get('photos', [])]
-            if len(urls) >= 2:
+            if len(urls) >= 1:
                 print(f"✅ 이미지 {len(urls)}장 확보")
                 return urls
             else:
                 return []
+        else:
+            print(f"⚠️ 이미지 검색 실패 Code: {resp.status_code}")
+            return []
     except Exception as e:
         print(f"⛔ 이미지 검색 에러: {e}")
     return []
 
 # =========================================================
-# [함수 6] 후킹 제목 생성 (테크 에디터 버전)
+# [함수 6] 후킹 제목 생성
 # =========================================================
 def generate_viral_title(news_title):
-    print("🎣 AI가 클릭을 유도하는 테크 제목을 짓고 있습니다...")
+    print("🎣 AI가 클릭을 유도하는 제목을 짓고 있습니다...")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
     
     prompt = f"""
@@ -125,15 +182,17 @@ def generate_viral_title(news_title):
     return news_title
 
 # =========================================================
-# [함수 7] 글 작성 (욕망 자극 페르소나)
+# [함수 7] 글 작성 (프롬프트 유지 & 변수 매칭 수정)
 # =========================================================
-def generate_deep_content_with_images(news, image_urls):
+def generate_deep_content_with_images(news, image_urls, dashboard_html):
     print(f"🧠 AI({MODEL_NAME})가 경제 리뷰를 작성 중...")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
     
-    img1 = f'<img src="{image_urls[0]}" alt="Tech Image 1" style="width:100%; border-radius:10px; margin:20px 0;">' if len(image_urls)>0 else ""
-    img2 = f'<img src="{image_urls[1]}" alt="Tech Image 2" style="width:100%; border-radius:10px; margin:20px 0;">' if len(image_urls)>1 else ""
-
+    # 이미지 태그 생성 (프롬프트의 {img_tag}와 매칭)
+    img_tag = ""
+    if len(image_urls) > 0:
+        img_tag = f'<img src="{image_urls[0]}" alt="Money Image" style="width:100%; border-radius:10px; margin:20px 0;">'
+    
     prompt = f"""
     당신은 냉철한 투자 전문가입니다. 아래 뉴스에 대한 분석글을 HTML로 작성하세요.
 
@@ -158,63 +217,4 @@ def generate_deep_content_with_images(news, image_urls):
     
     payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.3}}
     
-    for _ in range(3):
-        try:
-            res = requests.post(url, json=payload, headers={'Content-Type': 'application/json'})
-            if res.status_code == 200:
-                content = res.json()['candidates'][0]['content']['parts'][0]['text']
-                return content.replace("```html", "").replace("```", "").strip()
-            elif res.status_code == 429:
-                time.sleep(30)
-        except:
-            time.sleep(5)
-    return None
-
-# =========================================================
-# [메인 실행]
-# =========================================================
-def run_bot():
-    try:
-        creds = Credentials.from_authorized_user_info(TOKEN_JSON)
-        service = build('blogger', 'v3', credentials=creds)
-
-        # 1. 테크 뉴스 리스트 가져오기
-        news_list = get_tech_news_list()
-        if not news_list:
-            print("❌ 가져온 뉴스가 없습니다.")
-            return
-
-        target_news = None
-        for news in news_list:
-            print(f"🔎 기사 확인 중: {news.title}")
-            if check_is_duplicate(service, news.title):
-                print(f"🚫 [중복] 패스합니다.")
-                continue
-            else:
-                print(f"✅ [선택] 작업을 시작합니다.")
-                target_news = news
-                break
-        
-        if not target_news:
-            print("😴 오늘은 새로운 테크 뉴스가 없습니다.")
-            return
-
-        keywords = get_search_keywords(target_news.title)
-        images = get_relevant_images_webp(keywords)
-        
-        content = generate_deep_content_with_images(target_news, images)
-        if not content: return
-
-        final_title = generate_viral_title(target_news.title)
-        
-        print("📤 테크 블로그 업로드 중...")
-        body = {"kind": "blogger#post", "title": final_title, "content": content}
-        service.posts().insert(blogId=BLOG_ID, body=body).execute()
-        print(f"🎉 포스팅 완료! 제목: {final_title}")
-        
-    except Exception as e:
-        print(f"⛔ 치명적 오류: {e}")
-        exit(1)
-
-if __name__ == "__main__":
-    run_bot()
+    for _
