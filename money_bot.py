@@ -195,46 +195,56 @@ def generate_content(news, image_urls, dashboard_html):
 # [메인 실행]
 # =========================================================
 def run_bot():
+    # 0. 실행 모드 확인 (기본값: bitcoin)
+    mode = "bitcoin"
+    if len(sys.argv) > 1:
+        mode = sys.argv[1] # stock, bitcoin, altcoin 중 하나
+
     try:
         creds = Credentials.from_authorized_user_info(TOKEN_JSON)
         service = build('blogger', 'v3', credentials=creds)
         
-        # 1. 뉴스 찾기
-        news_list = get_money_news_list()
+        # 1. 모드에 맞는 뉴스 검색
+        news_list = get_news_by_mode(mode)
+        
+        # 중복 검사
         target_news = None
         for news in news_list:
-            if not check_is_duplicate(service, news.title):
-                target_news = news
-                break
+            is_dup = False
+            posts = service.posts().list(blogId=BLOG_ID, maxResults=10).execute()
+            for post in posts.get('items', []):
+                if news.title in post.get('content', ''):
+                    is_dup = True; break
+            if not is_dup:
+                target_news = news; break
         
         if not target_news:
-            print("😴 새로운 머니 뉴스가 없습니다.")
+            print(f"😴 [{mode}] 관련 새로운 뉴스가 없습니다.")
             return
 
-        # 2. 실시간 데이터 & 대시보드 생성 ★
-        market_data = get_market_data()
-        dashboard_html = create_dashboard_html(market_data)
+        # 2. 이미지 & 대시보드
+        dashboard = get_dashboard_html()
+        img_q = "stock market" if mode == 'stock' else "crypto bitcoin"
         
-        # 3. 이미지 찾기
-        img_keywords = "money, bitcoin, trading, wall street"
+        # ★ 수정된 부분: URL을 깔끔하게 넣었습니다.
         img_res = requests.get("https://api.pexels.com/v1/search", headers={"Authorization": PEXELS_API_KEY}, params={"query": img_q, "per_page": 1})
-        image_urls = [p['src']['original'] + "?auto=compress&fm=webp&w=800" for p in img_resp.json().get('photos', [])] if img_resp.status_code == 200 else []
-
-        # 4. 글 작성 & 제목 생성
-        content = generate_content(target_news, image_urls, dashboard_html)
-        if not content: return
         
-        final_title = generate_viral_title(target_news.title, market_data)
+        if img_res.status_code == 200 and img_res.json().get('photos'):
+            img_urls = [img_res.json()['photos'][0]['src']['landscape']]
+        else:
+            img_urls = []
 
-        # 5. 업로드
-        body = {"kind": "blogger#post", "title": final_title, "content": content}
-        service.posts().insert(blogId=BLOG_ID, body=body).execute()
-        print(f"💰 [업로드 완료] {final_title}")
-        print(f"📊 대시보드 데이터: BTC {market_data['btc']}원, 탐욕지수 {market_data['fng_value']}")
+        # 3. 작성 및 업로드
+        content = generate_content(target_news, img_urls, dashboard, mode)
+        title = generate_title(target_news.title, mode)
+        
+        if content:
+            service.posts().insert(blogId=BLOG_ID, body={"title": title, "content": content}).execute()
+            print(f"✅ [{mode}] 포스팅 완료: {title}")
 
     except Exception as e:
-        print(f"⛔ 에러 발생: {e}")
+        print(f"⛔ 에러: {e}")
         exit(1)
-
+        
 if __name__ == "__main__":
     run_bot()
