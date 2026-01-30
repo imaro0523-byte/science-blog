@@ -1,0 +1,23 @@
+name: Daily Money Post
+
+on:
+  schedule:
+    # 한국 시간 08:00, 13:00, 23:00
+    - cron: '0 23,4,14 * * *'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with: {python-version: '3.11'}
+      - run: pip install requests feedparser google-api-python-client google-auth-oauthlib
+      - env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          BLOG_ID: ${{ secrets.MONEY_BLOG_ID }}
+          CLIENT_JSON: ${{ secrets.CLIENT_JSON }}
+          TOKEN_JSON: ${{ secrets.TOKEN_JSON }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+        run: python money_bot.py
