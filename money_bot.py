@@ -217,7 +217,7 @@ def run_bot():
         
         # 3. 이미지 찾기
         img_keywords = "money, bitcoin, trading, wall street"
-        img_resp = requests.get("[https://api.pexels.com/v1/search](https://api.pexels.com/v1/search)", headers={"Authorization": PEXELS_API_KEY}, params={"query": img_keywords, "per_page": 1, "orientation": "landscape"})
+        img_res = requests.get("https://api.pexels.com/v1/search", headers={"Authorization": PEXELS_API_KEY}, params={"query": img_q, "per_page": 1})
         image_urls = [p['src']['original'] + "?auto=compress&fm=webp&w=800" for p in img_resp.json().get('photos', [])] if img_resp.status_code == 200 else []
 
         # 4. 글 작성 & 제목 생성
