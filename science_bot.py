@@ -29,26 +29,44 @@ except Exception as e:
 # =========================================================
 # [함수 1] 모델 선택 (Gemini 2.5 Flash 고정)
 # =========================================================
-
 MODEL_NAME = "gemini-2.5-flash"
 
 # =========================================================
-# [함수 2] 뉴스 가져오기
+# [함수 2] (수정됨) 뉴스 리스트 가져오기 (최대 5개)
 # =========================================================
-def get_top_science_news():
-    print("🔍 구글 뉴스 과학 섹션 헤드라인 검색...")
+def get_science_news_list():
+    print("🔍 구글 뉴스 과학 섹션 헤드라인 리스트 검색...")
     rss_url = "https://news.google.com/rss/headlines/section/topic/SCIENCE?hl=ko&gl=KR&ceid=KR:ko"
     try:
         feed = feedparser.parse(rss_url)
         if feed.entries:
-            print(f"✅ 선정된 뉴스: {feed.entries[0].title}")
-            return feed.entries[0]
+            # 상위 5개 뉴스만 가져옵니다.
+            top_5_news = feed.entries[:5]
+            print(f"✅ 총 {len(top_5_news)}개의 최신 뉴스를 가져왔습니다.")
+            return top_5_news
     except Exception as e:
         print(f"⛔ 뉴스 검색 에러: {e}")
-    return None
+    return []
 
 # =========================================================
-# [함수 3] 키워드 추출
+# [함수 3] 중복 포스팅 확인 함수
+# =========================================================
+def check_is_duplicate(service, news_title):
+    try:
+        # 최근 게시글 10개 검사 (범위를 조금 늘림)
+        posts = service.posts().list(blogId=BLOG_ID, maxResults=10).execute()
+        items = posts.get('items', [])
+        
+        for post in items:
+            if news_title in post.get('content', ''):
+                return True # 중복임
+        return False # 새 글임
+    except Exception as e:
+        print(f"⚠️ 중복 확인 중 에러 (진행함): {e}")
+        return False
+
+# =========================================================
+# [함수 4] 키워드 추출
 # =========================================================
 def get_search_keywords(news_title):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
@@ -60,7 +78,7 @@ def get_search_keywords(news_title):
         return "science, technology"
 
 # =========================================================
-# [함수 4] 이미지 검색
+# [함수 5] 이미지 검색
 # =========================================================
 def get_relevant_images_webp(query):
     print(f"🖼️ Pexels 이미지 검색: {query}")
@@ -68,14 +86,18 @@ def get_relevant_images_webp(query):
         resp = requests.get("https://api.pexels.com/v1/search", headers={"Authorization": PEXELS_API_KEY}, params={"query": query, "per_page": 2, "orientation": "landscape", "size": "medium"})
         if resp.status_code == 200:
             urls = [p['src']['original'] + "?auto=compress&fm=webp&w=800" for p in resp.json().get('photos', [])]
-            print(f"✅ 이미지 {len(urls)}장 확보")
-            return urls
+            if len(urls) >= 2:
+                print(f"✅ 이미지 {len(urls)}장 확보")
+                return urls
+            else:
+                print("⚠️ 이미지가 부족하여 기본 이미지 사용 고려")
+                return []
     except Exception as e:
         print(f"⛔ 이미지 검색 에러: {e}")
     return []
 
 # =========================================================
-# [함수 5] (신규) 후킹 제목 생성 함수
+# [함수 6] 후킹 제목 생성
 # =========================================================
 def generate_viral_title(news_title):
     print("🎣 AI가 클릭을 유도하는 제목을 짓고 있습니다...")
@@ -102,23 +124,19 @@ def generate_viral_title(news_title):
     오직 완성된 제목 한 줄만 출력해.
     """
     
-    payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.7}} # 창의성을 위해 온도 약간 높임
+    payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.7}}
     
     try:
         res = requests.post(url, json=payload, headers={'Content-Type': 'application/json'})
         if res.status_code == 200:
             new_title = res.json()['candidates'][0]['content']['parts'][0]['text'].strip()
-            # 혹시 모를 따옴표 제거
-            new_title = new_title.replace('"', '').replace("'", "")
-            print(f"✨ 생성된 제목: {new_title}")
-            return new_title
-    except Exception as e:
-        print(f"⚠️ 제목 생성 실패(원래 제목 사용): {e}")
-    
-    return news_title # 실패 시 원래 제목 반환
+            return new_title.replace('"', '').replace("'", "")
+    except:
+        pass
+    return news_title
 
 # =========================================================
-# [함수 6] 글 작성 및 '박스 뜯기'
+# [함수 7] 글 작성 및 '박스 뜯기'
 # =========================================================
 def generate_deep_content_with_images(news, image_urls):
     print(f"🧠 AI({MODEL_NAME})가 본문 작성 중...")
@@ -171,11 +189,8 @@ def generate_deep_content_with_images(news, image_urls):
         try:
             res = requests.post(url, json=payload, headers={'Content-Type': 'application/json'})
             if res.status_code == 200:
-                data = res.json()
-                if 'candidates' in data:
-                    content = data['candidates'][0]['content']['parts'][0]['text']
-                    content = content.replace("```html", "").replace("```", "").strip()
-                    return content
+                content = res.json()['candidates'][0]['content']['parts'][0]['text']
+                return content.replace("```html", "").replace("```", "").strip()
             elif res.status_code == 429:
                 time.sleep(30)
         except:
@@ -183,36 +198,59 @@ def generate_deep_content_with_images(news, image_urls):
     return None
 
 # =========================================================
-# [메인 실행]
+# [메인 실행] (수정됨: 반복문 추가)
 # =========================================================
 def run_bot():
     try:
-        # 1. 뉴스 가져오기
-        news = get_top_science_news()
-        if not news: return
+        # 1. Blogger 서비스 연결
+        creds = Credentials.from_authorized_user_info(TOKEN_JSON)
+        service = build('blogger', 'v3', credentials=creds)
+
+        # 2. 뉴스 리스트 가져오기 (최대 5개)
+        news_list = get_science_news_list()
+        if not news_list:
+            print("❌ 가져온 뉴스가 없습니다.")
+            return
+
+        # 3. 뉴스 하나씩 순회하며 중복 체크
+        target_news = None
         
-        # 2. 키워드 및 이미지 가져오기
-        keywords = get_search_keywords(news.title)
+        for news in news_list:
+            print(f"🔎 기사 확인 중: {news.title}")
+            if check_is_duplicate(service, news.title):
+                print(f"🚫 [중복] 이미 포스팅된 기사입니다. 다음 기사로 넘어갑니다.")
+                continue # 다음 뉴스로 점프
+            else:
+                print(f"✅ [통과] 새로운 기사입니다! 작업을 시작합니다.")
+                target_news = news
+                break # 작업할 뉴스를 찾았으니 루프 탈출
+        
+        # 4. 모든 뉴스가 중복이라면 종료
+        if not target_news:
+            print("😴 오늘은 모든 상위 뉴스가 이미 포스팅되었습니다. 봇을 종료합니다.")
+            return
+
+        # =====================================
+        # 여기서부터는 target_news로 글 작성 시작
+        # =====================================
+
+        # 5. 키워드 및 이미지
+        keywords = get_search_keywords(target_news.title)
         images = get_relevant_images_webp(keywords)
         
-        # 3. 본문 작성
-        content = generate_deep_content_with_images(news, images)
-        if not content:
+        # 6. 본문 작성
+        content = generate_deep_content_with_images(target_news, images)
+        if not content: 
             print("❌ 글 작성 실패")
             return
 
-        # 4. ★제목 새로 짓기 (추가된 부분)★
-        final_title = generate_viral_title(news.title)
-
-        # 5. 블로그 업로드
-        print("📤 블로그 업로드 중...")
-        creds = Credentials.from_authorized_user_info(TOKEN_JSON)
-        service = build('blogger', 'v3', credentials=creds)
+        # 7. 제목 생성 및 업로드
+        final_title = generate_viral_title(target_news.title)
         
-        # 여기서 [과학칼럼] 대신 새로 만든 제목(final_title)을 사용합니다.
+        print("📤 블로그 업로드 중...")
         body = {"kind": "blogger#post", "title": final_title, "content": content}
         service.posts().insert(blogId=BLOG_ID, body=body).execute()
-        print(f"🎉 포스팅 성공! 제목: {final_title}")
+        print(f"🎉 포스팅 완료! 제목: {final_title}")
         
     except Exception as e:
         print(f"⛔ 치명적 오류: {e}")
