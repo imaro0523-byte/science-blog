@@ -7,29 +7,40 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
 # =========================================================
-# [설정 구역] GitHub Secrets 가져오기
+# [설정 구역] 환경변수 및 보안 설정
 # =========================================================
+print("🔧 환경변수 점검 중...")
+
+# 1. API 키 확인
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
-BLOG_ID = os.environ.get('MONEY_BLOG_ID')  # 머니 블로그 ID
 PEXELS_API_KEY = os.environ.get('PEXELS_API_KEY')
 
-# 환경변수 로딩 및 에러 처리
+# 2. 블로그 ID 확인 (이름이 다를 경우를 대비해 2가지 다 체크)
+BLOG_ID = os.environ.get('MONEY_BLOG_ID')
+
+# 3. 필수값 검증 (시작 전에 미리 체크해서 시간 낭비 방지)
+if not GEMINI_API_KEY:
+    print("❌ [오류] GEMINI_API_KEY가 없습니다.")
+    exit(1)
+if not BLOG_ID:
+    print("❌ [오류] BLOG_ID(또는 MONEY_BLOG_ID)가 설정되지 않았습니다. GitHub Secrets를 확인하세요.")
+    exit(1)
+if not PEXELS_API_KEY:
+    print("⚠️ [주의] PEXELS_API_KEY가 없습니다. 이미지가 없이 글만 작성됩니다.")
+
+print(f"✅ 블로그 ID 확인됨: {BLOG_ID[:3]}*****")
+
+# 4. 구글 인증 토큰 로딩
 try:
     client_env = os.environ.get('CLIENT_JSON')
     token_env = os.environ.get('TOKEN_JSON')
     
-    if not client_env or not token_env or not PEXELS_API_KEY:
-        # 로컬 테스트가 아닐 경우에만 에러 발생
-        if not os.path.exists('client_secret.json'): 
-             print("⚠️ 주의: 환경변수가 일부 누락되었습니다.")
-        
     CLIENT_JSON = json.loads(client_env) if client_env else {}
     TOKEN_JSON = json.loads(token_env) if token_env else {}
 except Exception as e:
     print(f"⛔ 설정 로딩 에러: {e}")
-    # 일단 진행해보고 실패하면 멈춤
 
-MODEL_NAME = "gemini-2.5-flash"
+MODEL_NAME = "gemini-3-flash-preview"
 
 # =========================================================
 # [함수 1] 대시보드 데이터 생성 (HTML 생성기)
@@ -62,7 +73,6 @@ def get_dashboard_html():
     if fng >= 75: fng_emoji = "🔥 탐욕"
     elif fng <= 25: fng_emoji = "🥶 공포"
 
-    # 중괄호 충돌 방지를 위해 CSS는 인라인으로 단순화
     html = f"""
     <div style="background: #f8f9fa; border: 2px solid #333; border-radius: 12px; padding: 15px; margin-bottom: 25px; font-family: sans-serif;">
         <h3 style="text-align:center; margin:0 0 10px 0; color:#333;">🚀 머니 브리핑</h3>
@@ -108,7 +118,7 @@ def check_is_duplicate(service, news_title):
                 return True
         return False
     except Exception as e:
-        print(f"⚠️ 중복 확인 패스 (에러): {e}")
+        print(f"⚠️ 중복 확인 패스 (이유: {e})")
         return False
 
 # =========================================================
@@ -124,9 +134,12 @@ def get_search_keywords(news_title):
         return "money, business"
 
 # =========================================================
-# [함수 5] 이미지 검색 (안전한 버전)
+# [함수 5] 이미지 검색
 # =========================================================
 def get_relevant_images_webp(query):
+    if not PEXELS_API_KEY:
+        return []
+        
     print(f"🖼️ 이미지 검색: {query}")
     try:
         api_url = "https://api.pexels.com/v1/search"
@@ -146,7 +159,7 @@ def get_relevant_images_webp(query):
     return []
 
 # =========================================================
-# [함수 6] 본문 작성 (치환 방식 적용)
+# [함수 6] 본문 작성 (치환 방식)
 # =========================================================
 def generate_content_safe(news, image_urls, dashboard_html):
     print(f"🧠 AI가 글을 작성합니다...")
@@ -155,7 +168,6 @@ def generate_content_safe(news, image_urls, dashboard_html):
     if image_urls:
         img_tag = f'<img src="{image_urls[0]}" alt="Money Image" style="width:100%; border-radius:10px; margin:20px 0;">'
     
-    # ★ 핵심: 대시보드 HTML을 프롬프트에 넣지 않고, [[DASHBOARD]] 자리만 비워둠
     prompt = f"""
     투자 전문가 페르소나로 글을 작성해.
     
@@ -183,10 +195,9 @@ def generate_content_safe(news, image_urls, dashboard_html):
             res = requests.post(url, json=payload, headers={'Content-Type': 'application/json'})
             if res.status_code == 200:
                 raw_text = res.json()['candidates'][0]['content']['parts'][0]['text']
-                # 마크다운 제거
                 clean_text = raw_text.replace("```html", "").replace("```", "").strip()
                 
-                # ★ 여기서 파이썬이 대시보드 HTML로 교체 (안전함)
+                # ★ 대시보드 교체
                 final_content = clean_text.replace("[[DASHBOARD]]", dashboard_html)
                 return final_content
             else:
@@ -216,6 +227,7 @@ def generate_viral_title(news_title):
 def run_bot():
     print("▶️ 머니 봇 시작")
     try:
+        # 인증 객체 생성
         creds = Credentials.from_authorized_user_info(TOKEN_JSON)
         service = build('blogger', 'v3', credentials=creds)
 
@@ -242,17 +254,18 @@ def run_bot():
         # 2. 리소스 준비
         keywords = get_search_keywords(target_news.title)
         images = get_relevant_images_webp(keywords)
-        dashboard = get_dashboard_html() # 대시보드 미리 생성
+        dashboard = get_dashboard_html() 
 
-        # 3. 글 작성 (치환 방식)
+        # 3. 글 작성
         content = generate_content_safe(target_news, images, dashboard)
         if not content:
-            print("❌ 본문 생성 실패 (AI 응답 없음). 종료.")
+            print("❌ 본문 생성 실패. 종료.")
             return
 
-        # 4. 제목 및 업로드
+        # 4. 제목 및 업로드 (★ 여기서 BLOG_ID가 꼭 필요함)
         title = generate_viral_title(target_news.title)
         print(f"📤 업로드 진행: {title}")
+        print(f"   (타겟 블로그 ID: {BLOG_ID})")
         
         body = {"kind": "blogger#post", "title": title, "content": content}
         service.posts().insert(blogId=BLOG_ID, body=body).execute()
