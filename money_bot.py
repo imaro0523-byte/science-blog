@@ -15,7 +15,7 @@ print("🔧 환경변수 및 라이브러리 점검...")
 
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 PEXELS_API_KEY = os.environ.get('PEXELS_API_KEY')
-BLOG_ID = os.environ.get('MONEY_BLOG_ID')
+BLOG_ID = os.environ.get('MONEY_BLOG_ID') or os.environ.get('BLOG_ID')
 
 if not GEMINI_API_KEY:
     print("❌ GEMINI_API_KEY 누락")
@@ -202,7 +202,7 @@ def generate_content_safe(news, image_urls, dashboard_html):
     8. <h2>미래 시나리오와 당신의 기회 (Insight)</h2>
     9. <p>(전망 및 결론)</p>
     10. <hr>
-    11. <p style="color:grey; font-size:0.8em; text-align:center;">(AI 분석 자료이며 투자 책임은 본인에게 있습니다.)</p>
+    11. <p style="color:grey; font-size:0.8em; text-align:center;">(투자 책임은 본인에게 있습니다.)</p>
 
     위 구조에 맞춰 HTML 코드로만 출력하세요. 마크다운 사용 금지.
     """
@@ -211,4 +211,104 @@ def generate_content_safe(news, image_urls, dashboard_html):
     
     for _ in range(3):
         try:
-            res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, headers={'Content-Type': 'application/json
+            res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, headers={'Content-Type': 'application/json'})
+            if res.status_code == 200:
+                raw_text = res.json()['candidates'][0]['content']['parts'][0]['text']
+                clean_text = clean_markdown(raw_text.replace("```html", "").replace("```", "").strip())
+                
+                # 1. 대시보드 교체
+                final_content = clean_text.replace("[[DASHBOARD]]", dashboard_html)
+                
+                # 2. 이미지 태그 실제 주입 (파이썬에서 처리)
+                img1_tag = f'<img src="{image_urls[0]}" style="width:100%; border-radius:12px; margin:25px 0; box-shadow: 0 10px 20px rgba(0,0,0,0.1);">' if len(image_urls) > 0 else ""
+                img2_tag = f'<img src="{image_urls[1]}" style="width:100%; border-radius:12px; margin:25px 0; box-shadow: 0 10px 20px rgba(0,0,0,0.1);">' if len(image_urls) > 1 else img1_tag
+                
+                final_content = final_content.replace("[[IMAGE_1]]", img1_tag)
+                final_content = final_content.replace("[[IMAGE_2]]", img2_tag)
+                
+                return final_content
+            time.sleep(5)
+        except Exception as e:
+            print(f"작성 에러: {e}")
+            time.sleep(5)
+    return None
+
+# =========================================================
+# [함수 7] 제목 생성 (후보 리스트 금지 명령 추가)
+# =========================================================
+def generate_viral_title(news_title):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
+    
+    # ★ 핵심 수정: "후보를 주지 말고 딱 1개만 내놔라"고 강력하게 지시
+    prompt = f"""
+    뉴스 제목: '{news_title}'
+    
+    이 글의 블로그 제목을 딱 1개만 지어주세요.
+    
+    [절대 규칙]
+    1. 후보 리스트(1번, 2번...)를 절대 만들지 마세요.
+    2. 부가 설명 없이 오직 '제목 텍스트 한 줄'만 출력하세요.
+    3. 따옴표("), 별표(*) 특수문자 절대 사용 금지.
+    
+    [스타일]
+    사람들의 본능(돈, 공포, 기회)을 자극하는 도파민 터지는 제목.
+    """
+    
+    try:
+        res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, headers={'Content-Type': 'application/json'})
+        title = res.json()['candidates'][0]['content']['parts'][0]['text'].strip()
+        
+        # 안전장치: 혹시라도 엔터 치고 여러 줄을 보냈다면 첫 줄만 가져옴
+        clean_title = title.split('\n')[0]
+        
+        # 특수문자 및 불필요한 태그 제거
+        clean_title = clean_title.replace('"', '').replace("'", "").replace("**", "").replace("*", "")
+        clean_title = clean_title.replace("제목:", "").strip() # "제목: "이라고 말하는 경우 대비
+        
+        return clean_title
+    except:
+        return news_title
+
+# =========================================================
+# [메인 실행]
+# =========================================================
+def run_bot():
+    print("▶️ 도파민 머니 봇 v4.0 (이미지/제목 수정판) 시작")
+    try:
+        creds = Credentials.from_authorized_user_info(TOKEN_JSON)
+        service = build('blogger', 'v3', credentials=creds)
+
+        news_list = get_tech_news_list()
+        if not news_list: return
+
+        target_news = None
+        for news in news_list:
+            if not check_is_duplicate(service, news.title):
+                target_news = news
+                break
+        
+        if not target_news:
+            print("😴 새로운 뉴스 없음")
+            return
+
+        print(f"✅ 타겟 뉴스: {target_news.title}")
+        keywords = get_search_keywords(target_news.title)
+        images = get_relevant_images_webp(keywords)
+        dashboard = get_dashboard_html() 
+
+        content = generate_content_safe(target_news, images, dashboard)
+        if not content: return
+
+        title = generate_viral_title(target_news.title)
+        print(f"📤 최종 제목: {title}")
+        
+        body = {"kind": "blogger#post", "title": title, "content": content}
+        service.posts().insert(blogId=BLOG_ID, body=body).execute()
+        print(f"🎉 업로드 완료!")
+
+    except Exception as e:
+        print(f"⛔ 오류: {e}")
+        exit(1)
+
+if __name__ == "__main__":
+    run_bot()
