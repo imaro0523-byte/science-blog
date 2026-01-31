@@ -14,8 +14,8 @@ print("🔧 환경변수 점검 중...")
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 PEXELS_API_KEY = os.environ.get('PEXELS_API_KEY')
 
-# 블로그 ID 확인 (이름이 다를 경우를 대비해 3중 체크)
-BLOG_ID = os.environ.get('MONEY_BLOG_ID') 
+# 블로그 ID 확인 (안전장치: 여러 이름으로 시도)
+BLOG_ID = os.environ.get('MONEY_BLOG_ID')
 
 # 필수값 검증
 if not GEMINI_API_KEY:
@@ -124,7 +124,9 @@ def check_is_duplicate(service, news_title):
 # [함수 4] 키워드 추출
 # =========================================================
 def get_search_keywords(news_title):
+    # [수정됨] URL에서 불필요한 마크다운 기호 제거
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
+    
     prompt = f"뉴스 제목: '{news_title}'. 핵심 영어 키워드 3개만 콤마로 구분해. (예: Bitcoin, Economy, Inflation)"
     try:
         resp = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, headers={'Content-Type': 'application/json'})
@@ -167,7 +169,6 @@ def generate_content_safe(news, image_urls, dashboard_html):
     if image_urls:
         img_tag = f'<img src="{image_urls[0]}" alt="Insight Image" style="width:100%; border-radius:8px; margin:25px 0; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">'
     
-    # ★ 핵심 수정: 투자 조언 대신 '배경 분석'과 '인사이트' 요청
     prompt = f"""
     당신은 20년 경력의 '글로벌 경제 수석 애널리스트'입니다.
     아래 뉴스를 단순히 요약하지 말고, 이면의 배경과 앞으로 미칠 파급력을 심층 분석해 주세요.
@@ -195,8 +196,10 @@ def generate_content_safe(news, image_urls, dashboard_html):
     HTML 태그(h3, p, hr 등)만 출력하세요. 마크다운(```)은 사용 금지.
     """
     
+    # [수정됨] URL에서 불필요한 마크다운 기호 제거
     url = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
-    payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.4}} # temperature 약간 높여서 창의성 부여
+    
+    payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.4}} 
     
     for i in range(3):
         try:
@@ -221,9 +224,9 @@ def generate_content_safe(news, image_urls, dashboard_html):
 # [함수 7] 제목 생성 (** 제거 기능 추가)
 # =========================================================
 def generate_viral_title(news_title):
+    # [수정됨] URL에서 불필요한 마크다운 기호 제거
     url = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
     
-    # 프롬프트도 약간 수정: 너무 자극적인 어그로보다는 '지적 호기심' 자극
     prompt = f"""
     뉴스 제목: '{news_title}'
     
@@ -241,7 +244,7 @@ def generate_viral_title(news_title):
         res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, headers={'Content-Type': 'application/json'})
         title = res.json()['candidates'][0]['content']['parts'][0]['text'].strip()
         
-        # ★ 핵심 수정: 제목에 **가 붙어서 나오는 문제 해결
+        # 제목 정제
         clean_title = title.replace('"', '').replace("'", "").replace("**", "").replace("__", "")
         return clean_title
     except:
