@@ -225,7 +225,7 @@ def generate_content_safe(news, image_urls, dashboard_html):
 # =========================================================
 def generate_viral_title(news_title):
     # [수정됨] URL에서 불필요한 마크다운 기호 제거
-    url = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
     
     prompt = f"""
     뉴스 제목: '{news_title}'
