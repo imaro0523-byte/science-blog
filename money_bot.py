@@ -197,7 +197,7 @@ def generate_content_safe(news, image_urls, dashboard_html):
     """
     
     # [수정됨] URL에서 불필요한 마크다운 기호 제거
-    url = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
     
     payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.4}} 
     
