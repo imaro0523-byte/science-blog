@@ -2,8 +2,9 @@ name: Daily Money Post
 
 on:
   schedule:
-    # 한국 시간 08:00, 13:00, 23:00
-    - cron: '0 23,4,14 * * *'
+    # 한국 시간: 05:00, 14:00, 19:00
+    # UTC 시간: 20:00(전날), 05:00, 10:00
+    - cron: '0 5,10,20 * * *'
   workflow_dispatch:
 
 jobs:
