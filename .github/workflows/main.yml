@@ -1,5 +1,4 @@
 name: Daily Science Post
-
 on:
   schedule:
     # 한국 시간: 09:00, 14:00, 19:00
