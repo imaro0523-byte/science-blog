@@ -20,7 +20,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install requests feedparser google-api-python-client google-auth-oauthlib
+          pip install -r requirements.txt
 
       - name: Run Tech Bot
         env:
