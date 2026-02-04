@@ -160,7 +160,7 @@ def generate_deep_content_with_images(news, image_urls):
 5. **마무리**: "앞으로 어떻게 될까요?" 같은 전망으로 끝
 
 [구조 (HTML)]
-<h2>🔬 [흥미로운 제목, 관련 과학 원리 명칭]</h2>
+<h2>🔬 [흥미로운 제목]</h2>
 <p>[호기심 자극하는 도입 - 2~3문장]</p>
 
 {img1 if img1 else ""}
@@ -185,14 +185,20 @@ def generate_deep_content_with_images(news, image_urls):
 - HTML 태그만 출력 (```html 블록 사용 금지)
 """
     
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}], 
-        "generationConfig": {
-            "temperature": 0.7,  # 0.3 → 0.7로 상향
-            "topP": 0.9,
-            "topK": 40
-        }
-    }
+    payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.7}}
+    
+    for _ in range(3):
+        try:
+            res = requests.post(url, json=payload, headers={'Content-Type': 'application/json'})
+            if res.status_code == 200:
+                content = res.json()['candidates'][0]['content']['parts'][0]['text']
+                return content.replace("```html", "").replace("```", "").strip()
+            elif res.status_code == 429:
+                time.sleep(30)
+        except:
+            time.sleep(5)
+    return None
+
 # =========================================================
 # [메인 실행] (수정됨: 반복문 추가)
 # =========================================================
@@ -254,5 +260,6 @@ def run_bot():
 
 if __name__ == "__main__":
     run_bot()
+
 
 
