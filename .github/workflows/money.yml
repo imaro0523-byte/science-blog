@@ -1,24 +1,589 @@
-name: Daily Money Post
+import os
+import json
+import time
+import re
+import requests
+import feedparser
+import yfinance as yf
+import trafilatura
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
 
-on:
-  schedule:
-    # 한국 시간: 05:00, 14:00, 19:00
-    # UTC 시간: 20:00(전날), 05:00, 10:00
-    - cron: '0 5,10,20 * * *'
-  workflow_dispatch:
+# =========================================================
+# [설정 구역]
+# =========================================================
+print("🔧 환경변수 및 라이브러리 점검...")
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
-        with: {python-version: '3.11'}
-      - run: pip install -r requirements_money.txt
-      - env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          MONEY_BLOG_ID: ${{ secrets.MONEY_BLOG_ID }}
-          CLIENT_JSON: ${{ secrets.CLIENT_JSON }}
-          TOKEN_JSON: ${{ secrets.TOKEN_JSON }}
-          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
-        run: python money_bot.py
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+PEXELS_API_KEY = os.environ.get('PEXELS_API_KEY')
+BLOG_ID = os.environ.get('MONEY_BLOG_ID') or os.environ.get('BLOG_ID')
+
+if not GEMINI_API_KEY:
+    print("❌ GEMINI_API_KEY 누락")
+    exit(1)
+if not BLOG_ID:
+    print("❌ BLOG_ID 누락")
+    exit(1)
+
+print(f"✅ 타겟 블로그 ID: {BLOG_ID[:5]}*****")
+
+try:
+    CLIENT_JSON = json.loads(os.environ.get('CLIENT_JSON', '{}'))
+    TOKEN_JSON = json.loads(os.environ.get('TOKEN_JSON', '{}'))
+except:
+    print("⛔ 인증 토큰 로딩 실패")
+
+MODEL_NAME = "gemini-2.0-flash-exp"
+
+# =========================================================
+# [함수 1] 통합 시장 대시보드
+# =========================================================
+def get_dashboard_html():
+    print("📊 5대 핵심 자산 데이터 수집 중...")
+    
+    data = {
+        "btc": {"price": 0, "chg": 0, "name": "비트코인"},
+        "snp": {"price": 0, "chg": 0, "name": "S&P 500"},
+        "nas": {"price": 0, "chg": 0, "name": "나스닥"},
+        "kos": {"price": 0, "chg": 0, "name": "코스피"},
+        "kdq": {"price": 0, "chg": 0, "name": "코스닥"}
+    }
+
+    tickers = {'^GSPC': 'snp', '^IXIC': 'nas', '^KS11': 'kos', '^KQ11': 'kdq'}
+    try:
+        for ticker, key in tickers.items():
+            stock = yf.Ticker(ticker)
+            hist = stock.history(period="2d")
+            if len(hist) >= 2:
+                close_today = hist['Close'].iloc[-1]
+                close_prev = hist['Close'].iloc[-2]
+                data[key]['price'] = close_today
+                data[key]['chg'] = ((close_today - close_prev) / close_prev) * 100
+    except Exception as e:
+        print(f"⚠️ 주식 데이터 수집 실패: {e}")
+
+    try:
+        url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=krw&include_24hr_change=true"
+        res = requests.get(url, timeout=5).json()
+        data['btc']['price'] = res['bitcoin']['krw']
+        data['btc']['chg'] = res['bitcoin']['krw_24h_change']
+    except:
+        pass
+
+    def get_style(chg):
+        color = "#d63031" if chg >= 0 else "#0984e3"
+        arrow = "▲" if chg >= 0 else "▼"
+        return color, arrow
+
+    items_html = ""
+    display_order = ['btc', 'snp', 'nas', 'kos', 'kdq']
+    
+    for key in display_order:
+        color, arrow = get_style(data[key]['chg'])
+        price_fmt = f"{data[key]['price']:,.0f}" if key == 'btc' else f"{data[key]['price']:,.2f}"
+        
+        items_html += f"""
+        <div style="flex: 1 1 18%; min-width: 100px; margin: 5px; padding: 10px; background: #ffffff; border-radius: 8px; border: 1px solid #eee; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.03);">
+            <div style="font-size: 11px; color: #888; margin-bottom: 4px;">{data[key]['name']}</div>
+            <div style="font-size: 14px; font-weight: 800; color: {color}; margin-bottom: 2px;">
+                {arrow} {price_fmt}
+            </div>
+            <div style="font-size: 10px; color: {color}; font-weight: 500;">({data[key]['chg']:.2f}%)</div>
+        </div>
+        """
+    
+    full_html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; margin-bottom: 30px; background: #f8f9fa; border-radius: 12px; padding: 15px;">
+        <h3 style="text-align: center; margin: 0 0 10px 0; font-size: 16px; color: #2d3436; letter-spacing: -0.5px;">⚡ Market Flow Check</h3>
+        <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 5px;">
+            {items_html}
+        </div>
+    </div>
+    """
+    return full_html
+
+# =========================================================
+# [함수 2] 뉴스 가져오기
+# =========================================================
+def get_business_news_list():
+    print("🔍 구글 뉴스 [금융/경제] 섹션 검색...")
+    rss_url = "https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=ko&gl=KR&ceid=KR:ko"
+    try:
+        feed = feedparser.parse(rss_url)
+        if feed.entries:
+            return feed.entries[:5]
+    except Exception as e:
+        print(f"⛔ 뉴스 검색 에러: {e}")
+    return []
+
+# =========================================================
+# [함수 3] 중복 확인
+# =========================================================
+def check_is_duplicate(service, news_title):
+    try:
+        posts = service.posts().list(blogId=BLOG_ID, maxResults=10).execute()
+        for post in posts.get('items', []):
+            if news_title in post.get('content', ''): 
+                return True
+        return False
+    except:
+        return False
+
+# =========================================================
+# [함수 4] 원문 기사 본문 크롤링 (★ 새로 추가)
+# =========================================================
+def fetch_article_content(url):
+    """뉴스 원문을 크롤링하여 본문 텍스트 추출"""
+    print(f"📰 기사 본문 가져오는 중: {url}")
+    try:
+        downloaded = trafilatura.fetch_url(url)
+        if downloaded:
+            text = trafilatura.extract(downloaded, include_comments=False)
+            if text and len(text) > 100:
+                print(f"✅ 본문 {len(text)}자 추출 성공")
+                return text[:3000]
+        print("⚠️ 본문 추출 실패 - 제목만 사용")
+        return None
+    except Exception as e:
+        print(f"⛔ 크롤링 에러: {e}")
+        return None
+
+# =========================================================
+# [함수 5] 관련 기업 및 경제 원리 리서치 (★ 핵심 추가)
+# =========================================================
+def research_economy_and_companies(news_title, article_content):
+    """뉴스 주제에 대한 경제 원리 + 관련 기업 분석"""
+    print("🔬 AI가 경제 원리 및 관련 기업 리서치 중...")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
+    
+    context = f"기사 내용: {article_content[:1500]}" if article_content else f"제목만 있음: {news_title}"
+    
+    prompt = f"""
+    다음 경제/금융 뉴스를 분석하여 독자들이 알아야 할 정보를 정리해줘.
+    
+    {context}
+    
+    다음 항목들을 각각 2-3문장으로 요약해줘:
+    1. 핵심 경제 원리: 이 뉴스와 관련된 경제학 개념 (금리, 인플레이션, 공급망, 환율, 양적완화 등)
+    2. 관련 미국 기업: 이 뉴스와 직접 연관된 미국 기업 1-2개 (티커 심볼 포함, 예: Apple(AAPL))
+    3. 관련 한국 기업: 이 뉴스와 직접 연관된 한국 기업 1-2개 (티커 심볼 포함, 예: 삼성전자(005930.KS))
+    4. 시장 전망: 전문가들의 의견이나 향후 예상되는 시장 변화
+    
+    JSON 형식으로만 출력:
+    {{
+      "economic_principle": "...",
+      "us_companies": ["Apple(AAPL)", "Microsoft(MSFT)"],
+      "kr_companies": ["삼성전자(005930.KS)", "SK하이닉스(000660.KS)"],
+      "market_outlook": "..."
+    }}
+    """
+    
+    try:
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0.5}
+        }
+        res = requests.post(url, json=payload, headers={'Content-Type': 'application/json'})
+        
+        if res.status_code == 200:
+            raw_text = res.json()['candidates'][0]['content']['parts'][0]['text']
+            json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
+            if json_match:
+                research_data = json.loads(json_match.group())
+                print("✅ 리서치 완료")
+                return research_data
+    except Exception as e:
+        print(f"⚠️ 리서치 실패: {e}")
+    
+    return None
+
+# =========================================================
+# [함수 6] 기업 재무 정보 수집 (★ 핵심 추가)
+# =========================================================
+def get_company_financials(companies_list):
+    """yfinance를 사용하여 기업의 시가총액, 주가, 주력 사업 정보 수집"""
+    print("💼 관련 기업들의 재무 정보 수집 중...")
+    
+    company_data = []
+    
+    for company_str in companies_list:
+        try:
+            # "삼성전자(005930.KS)" 형식에서 티커 추출
+            ticker_match = re.search(r'\(([^)]+)\)', company_str)
+            if not ticker_match:
+                continue
+                
+            ticker = ticker_match.group(1)
+            company_name = company_str.split('(')[0].strip()
+            
+            print(f"  📈 {company_name} ({ticker}) 데이터 수집 중...")
+            
+            stock = yf.Ticker(ticker)
+            info = stock.info
+            
+            # 시가총액 (원화 변환 고려)
+            market_cap = info.get('marketCap', 0)
+            if market_cap:
+                if 'KS' in ticker:  # 한국 기업
+                    market_cap_display = f"{market_cap / 1_000_000_000_000:.1f}조원"
+                else:  # 미국 기업
+                    market_cap_display = f"${market_cap / 1_000_000_000:.1f}B"
+            else:
+                market_cap_display = "N/A"
+            
+            # 현재 주가
+            current_price = info.get('currentPrice', 0)
+            if not current_price:
+                hist = stock.history(period="1d")
+                current_price = hist['Close'].iloc[-1] if len(hist) > 0 else 0
+            
+            # 주력 사업 (비즈니스 섹터)
+            sector = info.get('sector', 'N/A')
+            industry = info.get('industry', 'N/A')
+            business_summary = info.get('longBusinessSummary', '')[:200] if info.get('longBusinessSummary') else 'N/A'
+            
+            company_data.append({
+                'name': company_name,
+                'ticker': ticker,
+                'price': f"${current_price:.2f}" if current_price else "N/A",
+                'market_cap': market_cap_display,
+                'sector': sector,
+                'industry': industry,
+                'summary': business_summary
+            })
+            
+            print(f"  ✅ {company_name}: 시총 {market_cap_display}, 주가 ${current_price:.2f}")
+            
+        except Exception as e:
+            print(f"  ⚠️ {company_str} 정보 수집 실패: {e}")
+            continue
+    
+    return company_data
+
+# =========================================================
+# [함수 7] 키워드 추출
+# =========================================================
+def get_search_keywords(news_title):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
+    prompt = f"뉴스 제목: '{news_title}'. 이 뉴스를 시각적으로 표현할 수 있는 영어 검색 키워드 2개만 콤마로 구분해서 알려줘. 설명 없이 단어만."
+    try:
+        resp = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, headers={'Content-Type': 'application/json'})
+        return resp.json()['candidates'][0]['content']['parts'][0]['text'].strip()
+    except:
+        return "money, stock market"
+
+# =========================================================
+# [함수 8] 이미지 검색
+# =========================================================
+def get_relevant_images_webp(query):
+    if not PEXELS_API_KEY: return []
+    try:
+        url = "https://api.pexels.com/v1/search"
+        headers = {"Authorization": PEXELS_API_KEY}
+        params = {"query": query, "per_page": 2, "orientation": "landscape", "size": "medium"}
+        resp = requests.get(url, headers=headers, params=params)
+        
+        images = []
+        if resp.status_code == 200:
+            photos = resp.json().get('photos', [])
+            for p in photos:
+                images.append(p['src']['original'] + "?auto=compress&fm=webp&w=800")
+        return images
+    except:
+        pass
+    return []
+
+# =========================================================
+# [함수 9] 마크다운 클리너
+# =========================================================
+def clean_markdown(text):
+    text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
+    text = text.replace('##', '').replace('###', '')
+    return text
+
+# =========================================================
+# [함수 10] 기업 카드 HTML 생성
+# =========================================================
+def generate_company_cards_html(company_data):
+    """기업 정보를 보기 좋은 카드 형태로 HTML 생성"""
+    if not company_data:
+        return ""
+    
+    cards_html = '<div style="display: flex; flex-wrap: wrap; gap: 15px; margin: 25px 0;">'
+    
+    for company in company_data:
+        card = f"""
+        <div style="flex: 1 1 calc(50% - 15px); min-width: 250px; background: #f8f9fa; border-radius: 12px; padding: 20px; border-left: 4px solid #0984e3;">
+            <h3 style="margin: 0 0 10px 0; color: #2d3436; font-size: 18px;">{company['name']}</h3>
+            <p style="margin: 5px 0; color: #636e72; font-size: 13px;"><b>티커:</b> {company['ticker']}</p>
+            <p style="margin: 5px 0; color: #636e72; font-size: 13px;"><b>현재가:</b> {company['price']}</p>
+            <p style="margin: 5px 0; color: #636e72; font-size: 13px;"><b>시가총액:</b> {company['market_cap']}</p>
+            <p style="margin: 5px 0; color: #636e72; font-size: 13px;"><b>섹터:</b> {company['sector']}</p>
+            <p style="margin: 5px 0; color: #636e72; font-size: 13px;"><b>산업:</b> {company['industry']}</p>
+            <p style="margin: 10px 0 0 0; color: #2d3436; font-size: 12px; line-height: 1.5;">{company['summary']}</p>
+        </div>
+        """
+        cards_html += card
+    
+    cards_html += '</div>'
+    return cards_html
+
+# =========================================================
+# [함수 11] 심층 분석 본문 작성 (★ 대폭 강화)
+# =========================================================
+def generate_deep_content(news, image_urls, dashboard_html, article_content=None, research_data=None, company_data=None):
+    print("🧠 경제 원리 + 기업 분석 칼럼 작성 중...")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
+    
+    # 리서치 데이터 통합
+    research_section = ""
+    if research_data:
+        research_section = f"""
+[참고할 배경 지식]
+- 경제 원리: {research_data.get('economic_principle', 'N/A')}
+- 관련 미국 기업: {', '.join(research_data.get('us_companies', []))}
+- 관련 한국 기업: {', '.join(research_data.get('kr_companies', []))}
+- 시장 전망: {research_data.get('market_outlook', 'N/A')}
+"""
+
+    article_section = f"""
+[원문 기사 내용]
+{article_content[:1500]}
+""" if article_content else ""
+
+    # 기업 정보 텍스트 요약
+    company_summary = ""
+    if company_data:
+        company_summary = "\n[관련 기업 정보]\n"
+        for company in company_data:
+            company_summary += f"- {company['name']}: 시총 {company['market_cap']}, 주가 {company['price']}, {company['sector']} 섹터\n"
+
+    prompt = f"""
+    당신은 10년 경력의 경제/금융 전문 칼럼니스트입니다.
+    아래 뉴스를 단순 요약이 아닌, **경제 원리 해설 + 관련 기업 심층 분석** 칼럼으로 작성하세요.
+
+    [뉴스 기본 정보]
+    제목: {news.title}
+    링크: {news.link}
+    
+    {article_section}
+    
+    {research_section}
+    
+    {company_summary}
+    
+    [작성 가이드]
+    1. **경제 원리 해설**: 뉴스 속 경제 개념(금리, 인플레이션, 공급망 등)을 쉽게 설명
+    2. **기업 연결**: 이 뉴스가 관련 기업들에게 어떤 영향을 미치는지 분석
+    3. **재무 현황**: 관련 기업들의 시가총액, 주력 사업, 수익 구조 설명
+    4. **투자 인사이트**: 독자가 이 정보를 어떻게 활용할 수 있는지 제시
+    5. **비판적 시각**: 리스크와 우려 사항도 공정하게 다룸
+    
+    [HTML 구조]
+    [[DASHBOARD]]
+    
+    <h2>🔥 [도발적인 소제목]</h2>
+    <p>[후킹: 독자의 돈과 관련된 질문 - 3문장]</p>
+    
+    [[IMAGE_1]]
+    
+    <h2>📚 경제 원리 해부: [핵심 개념]이란?</h2>
+    <p>[경제 개념을 일상 비유로 쉽게 설명 - 5문장 이상]</p>
+    <ul>
+      <li>핵심 포인트 1</li>
+      <li>핵심 포인트 2</li>
+      <li>핵심 포인트 3</li>
+    </ul>
+    
+    <h2>🏢 주목해야 할 기업들</h2>
+    <p>[관련 기업들이 왜 중요한지, 이 뉴스가 기업에 미치는 영향 - 4문장 이상]</p>
+    
+    [[COMPANY_CARDS]]
+    
+    [[IMAGE_2]]
+    
+    <h2>💰 투자자 관점: 이 정보를 어떻게 활용할까</h2>
+    <p>[구체적인 투자 인사이트, 주의할 점 - 4문장 이상]</p>
+    
+    <h2>⚠️ 주의해야 할 리스크</h2>
+    <p>[비판적 분석 - 불확실성, 리스크 요인 - 3문장 이상]</p>
+    
+    <p><strong>결론:</strong> [한 문장 정리]</p>
+    <hr>
+    <p style="color:grey; font-size:0.8em; text-align:center;">📰 출처: <a href="{news.link}">{news.title}</a></p>
+    <p style="color:grey; font-size:0.8em; text-align:center;">⚠️ 본 글은 투자 권유가 아니며, 투자 판단의 책임은 투자자 본인에게 있습니다.</p>
+    
+    [필수 규칙]
+    - HTML 태그만 출력 (```html 블록 절대 금지)
+    - 해요체 사용
+    - 전문 용어는 반드시 괄호로 쉽게 풀이
+    - 각 섹션마다 최소 3문장 이상 작성
+    - [[IMAGE_1]], [[IMAGE_2]], [[COMPANY_CARDS]], [[DASHBOARD]]는 정확히 그대로 출력
+    """
+    
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}], 
+        "generationConfig": {
+            "temperature": 0.6,
+            "topP": 0.9,
+            "topK": 40,
+            "maxOutputTokens": 2048
+        }
+    }
+    
+    for attempt in range(3):
+        try:
+            res = requests.post(url, json=payload, headers={'Content-Type': 'application/json'})
+            if res.status_code == 200:
+                raw_text = res.json()['candidates'][0]['content']['parts'][0]['text']
+                clean_text = clean_markdown(raw_text.replace("```html", "").replace("```", "").strip())
+                
+                # 1. 대시보드 교체
+                final_content = clean_text.replace("[[DASHBOARD]]", dashboard_html)
+                
+                # 2. 이미지 태그 주입
+                img1_tag = f'<img src="{image_urls[0]}" style="width:100%; border-radius:12px; margin:25px 0; box-shadow: 0 10px 20px rgba(0,0,0,0.1);">' if len(image_urls) > 0 else ""
+                img2_tag = f'<img src="{image_urls[1]}" style="width:100%; border-radius:12px; margin:25px 0; box-shadow: 0 10px 20px rgba(0,0,0,0.1);">' if len(image_urls) > 1 else img1_tag
+                
+                final_content = final_content.replace("[[IMAGE_1]]", img1_tag)
+                final_content = final_content.replace("[[IMAGE_2]]", img2_tag)
+                
+                # 3. 기업 카드 주입
+                company_cards_html = generate_company_cards_html(company_data) if company_data else ""
+                final_content = final_content.replace("[[COMPANY_CARDS]]", company_cards_html)
+                
+                # 너무 짧으면 재시도
+                if len(final_content) < 500:
+                    print(f"⚠️ 글이 너무 짧음 ({len(final_content)}자), 재시도...")
+                    time.sleep(3)
+                    continue
+                
+                return final_content
+                
+            elif res.status_code == 429:
+                print("⏳ Rate limit, 30초 대기...")
+                time.sleep(30)
+        except Exception as e:
+            print(f"❌ 시도 {attempt+1} 실패: {e}")
+            time.sleep(5)
+    
+    return None
+
+# =========================================================
+# [함수 12] 제목 생성
+# =========================================================
+def generate_viral_title(news_title):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
+    
+    prompt = f"""
+    뉴스 제목: '{news_title}'
+    
+    이 글의 블로그 제목을 딱 1개만 지어주세요.
+    
+    [절대 규칙]
+    1. 후보 리스트(1번, 2번...)를 절대 만들지 마세요.
+    2. 부가 설명 없이 오직 '제목 텍스트 한 줄'만 출력하세요.
+    3. 따옴표("), 별표(*) 특수문자 절대 사용 금지.
+    
+    [스타일]
+    경제/금융 이슈를 다루되, 독자의 관심을 끄는 질문이나 도발적 문구 활용.
+    """
+    
+    try:
+        res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, headers={'Content-Type': 'application/json'})
+        title = res.json()['candidates'][0]['content']['parts'][0]['text'].strip()
+        
+        clean_title = title.split('\n')[0]
+        clean_title = clean_title.replace('"', '').replace("'", "").replace("**", "").replace("*", "")
+        clean_title = clean_title.replace("제목:", "").strip()
+        
+        return clean_title
+    except:
+        return news_title
+
+# =========================================================
+# [메인 실행] (★ 파이프라인 통합)
+# =========================================================
+def run_bot():
+    print("▶️ 경제 심층 분석 봇 v5.0 시작")
+    try:
+        creds = Credentials.from_authorized_user_info(TOKEN_JSON)
+        service = build('blogger', 'v3', credentials=creds)
+
+        news_list = get_business_news_list()
+        if not news_list:
+            print("❌ 뉴스 없음")
+            return
+
+        target_news = None
+        for news in news_list:
+            print(f"\n{'='*60}")
+            print(f"🔎 검토 중: {news.title}")
+            if check_is_duplicate(service, news.title):
+                print("🚫 중복 - 스킵")
+                continue
+            else:
+                target_news = news
+                break
+        
+        if not target_news:
+            print("😴 새 뉴스 없음")
+            return
+
+        print(f"\n{'='*60}")
+        print(f"✅ 선택됨: {target_news.title}")
+        print(f"{'='*60}\n")
+
+        # ★★★ 핵심 파이프라인 ★★★
+        # 1단계: 원문 크롤링
+        article_content = fetch_article_content(target_news.link)
+        
+        # 2단계: 경제 원리 + 기업 리서치
+        research_data = research_economy_and_companies(target_news.title, article_content)
+        
+        # 3단계: 기업 재무 정보 수집
+        company_data = []
+        if research_data:
+            all_companies = research_data.get('us_companies', []) + research_data.get('kr_companies', [])
+            company_data = get_company_financials(all_companies)
+        
+        # 4단계: 이미지 검색
+        keywords = get_search_keywords(target_news.title)
+        images = get_relevant_images_webp(keywords)
+        
+        # 5단계: 대시보드 생성
+        dashboard = get_dashboard_html()
+        
+        # 6단계: 심층 칼럼 작성
+        content = generate_deep_content(
+            target_news,
+            images,
+            dashboard,
+            article_content,
+            research_data,
+            company_data
+        )
+        
+        if not content:
+            print("❌ 글 작성 실패")
+            return
+
+        # 7단계: 제목 생성 및 업로드
+        title = generate_viral_title(target_news.title)
+        print(f"\n📤 최종 제목: {title}")
+        
+        body = {"kind": "blogger#post", "title": title, "content": content}
+        service.posts().insert(blogId=BLOG_ID, body=body).execute()
+        print(f"\n🎉 포스팅 완료!")
+        print(f"📝 제목: {title}")
+        print(f"📏 본문 길이: {len(content)}자")
+        print(f"🏢 분석한 기업 수: {len(company_data)}개")
+
+    except Exception as e:
+        print(f"⛔ 치명적 오류: {e}")
+        import traceback
+        traceback.print_exc()
+        exit(1)
+
+if __name__ == "__main__":
+    run_bot()
