@@ -20,8 +20,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: |
-          pip install requests feedparser google-api-python-client google-auth-oauthlib
+        run: pip install -r requirements.txt
 
       - name: Run bot
         env:
