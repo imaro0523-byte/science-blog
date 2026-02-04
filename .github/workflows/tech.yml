@@ -2,9 +2,8 @@ name: Daily Tech Post
 
 on:
   schedule:
-    # 한국 시간: 10:00, 15:00, 20:00
-    # UTC 시간: 01:00, 06:00, 11:00
-    - cron: '0 1,6,11 * * *'
+    # 한국 시간: 06:00 (UTC 21:00), 19:00 (UTC 10:00)
+    - cron: '0 10,21 * * *'
   workflow_dispatch: # 수동 실행 버튼
 
 jobs:
