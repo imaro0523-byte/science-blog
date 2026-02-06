@@ -16,7 +16,7 @@ print("🔧 환경변수 및 라이브러리 점검...")
 
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 PEXELS_API_KEY = os.environ.get('PEXELS_API_KEY')
-BLOG_ID = os.environ.get('MONEY_BLOG_ID') 
+BLOG_ID = os.environ.get('BLOG_ID') 
 
 if not GEMINI_API_KEY:
     print("❌ GEMINI_API_KEY 누락")
