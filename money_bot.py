@@ -16,7 +16,7 @@ print("🔧 환경변수 및 라이브러리 점검...")
 
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 PEXELS_API_KEY = os.environ.get('PEXELS_API_KEY')
-BLOG_ID = os.environ.get('BLOG_ID') 
+BLOG_ID = os.environ.get('MONEY_BLOG_ID') 
 
 if not GEMINI_API_KEY:
     print("❌ GEMINI_API_KEY 누락")
@@ -34,7 +34,7 @@ except:
     print("⛔ 인증 토큰 로딩 실패")
     exit(1)
 
-MODEL_NAME = "gemini-2.5-flash"  # ★ 모델명 수정
+MODEL_NAME = "gemini-2.0-flash-exp"  # ★ 모델명 수정
 
 # =========================================================
 # [함수 1] 통합 시장 대시보드
@@ -295,63 +295,109 @@ def generate_content(news, images, dashboard, article_content, research_data, co
     print("🧠 심층 칼럼 작성 중...")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
     
-    article_part = f"[기사 내용]\n{article_content[:1200]}" if article_content else ""
+    # 원문이 없어도 제목으로 글 작성 가능하도록 수정
+    if article_content:
+        article_part = f"\n[기사 본문 발췌]\n{article_content[:1200]}\n"
+    else:
+        article_part = "\n[참고: 기사 본문은 확보하지 못했으므로, 뉴스 제목을 기반으로 일반적인 경제 분석을 작성해주세요.]\n"
     
     company_summary = ""
     if company_data:
-        company_summary = "\n[관련 기업]\n"
+        company_summary = "\n[관련 기업 정보]\n"
         for c in company_data:
-            company_summary += f"- {c['name']}: 시총 {c['market_cap']}, {c['sector']}\n"
+            company_summary += f"- {c['name']}: 시총 {c['market_cap']}, 주가 {c['price']}, 섹터 {c['sector']}\n"
     
     prompt = f"""
-    당신은 경제 전문 칼럼니스트입니다.
+    당신은 경제/금융 전문 칼럼니스트입니다.
+    아래 뉴스를 심층 분석하는 칼럼을 작성하세요.
     
-    [뉴스] {news.title}
+    [뉴스 제목]
+    {news.title}
     {article_part}
     {company_summary}
     
-    HTML로 작성:
-    [[DASHBOARD]]
-    <h2>🔥 [도발적 제목]</h2>
-    <p>[후킹 3문장]</p>
-    [[IMAGE_1]]
-    <h2>📚 경제 원리</h2>
-    <p>[원리 설명 5문장]</p>
-    <h2>🏢 주목할 기업들</h2>
-    <p>[기업 분석 4문장]</p>
-    [[COMPANY_CARDS]]
-    [[IMAGE_2]]
-    <h2>💰 투자 인사이트</h2>
-    <p>[전망 4문장]</p>
-    <p><strong>결론:</strong> [1문장]</p>
-    <hr>
-    <p style="color:grey; font-size:0.8em; text-align:center;">⚠️ 투자 판단은 본인 책임입니다.</p>
+    [작성 가이드]
+    1. 뉴스 제목에서 핵심 경제 이슈를 파악
+    2. 관련된 경제 원리나 시장 메커니즘 설명
+    3. 미국/한국 관련 기업이 있다면 어떤 영향을 받는지 분석
+    4. 투자자 관점에서 의미있는 인사이트 제공
+    5. 리스크 요인도 함께 언급
     
-    HTML만 출력. ```html 금지.
+    [HTML 구조]
+    [[DASHBOARD]]
+    
+    <h2>🔥 [독자의 관심을 끄는 소제목]</h2>
+    <p>[이 뉴스가 왜 중요한지 후킹 - 3문장]</p>
+    
+    [[IMAGE_1]]
+    
+    <h2>📚 경제 원리 해부</h2>
+    <p>[이 뉴스와 관련된 경제 개념 설명 - 5문장 이상]</p>
+    <ul>
+      <li>핵심 포인트 1</li>
+      <li>핵심 포인트 2</li>
+      <li>핵심 포인트 3</li>
+    </ul>
+    
+    <h2>🏢 관련 기업 분석</h2>
+    <p>[이 뉴스가 기업들에게 미치는 영향 - 4문장 이상]</p>
+    
+    [[COMPANY_CARDS]]
+    
+    [[IMAGE_2]]
+    
+    <h2>💰 투자자가 알아야 할 것</h2>
+    <p>[구체적인 투자 인사이트와 전망 - 4문장 이상]</p>
+    
+    <h2>⚠️ 리스크 체크</h2>
+    <p>[주의해야 할 불확실성이나 리스크 - 3문장 이상]</p>
+    
+    <p><strong>결론:</strong> [핵심 메시지 1문장 정리]</p>
+    <hr>
+    <p style="color:grey; font-size:0.8em; text-align:center;">📰 출처: <a href="{news.link}">{news.title}</a></p>
+    <p style="color:grey; font-size:0.8em; text-align:center;">⚠️ 본 글은 투자 권유가 아니며, 투자 판단의 책임은 투자자 본인에게 있습니다.</p>
+    
+    [필수 규칙]
+    - HTML 태그만 출력 (```html 블록 절대 금지)
+    - 해요체 사용
+    - 전문 용어는 괄호로 쉽게 풀이
+    - 각 섹션 최소 3문장 이상
+    - [[DASHBOARD]], [[IMAGE_1]], [[IMAGE_2]], [[COMPANY_CARDS]]는 정확히 그대로 출력
     """
     
-    try:
-        res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, 
-                          headers={'Content-Type': 'application/json'}, 
-                          timeout=30)
-        if res.status_code == 200:
-            raw = res.json()['candidates'][0]['content']['parts'][0]['text']
-            clean = raw.replace("```html", "").replace("```", "").strip()
-            
-            # 치환
-            clean = clean.replace("[[DASHBOARD]]", dashboard)
-            clean = clean.replace("[[COMPANY_CARDS]]", make_company_cards(company_data))
-            
-            img1 = f'<img src="{images[0]}" style="width:100%; border-radius:12px; margin:25px 0;">' if len(images) > 0 else ""
-            img2 = f'<img src="{images[1]}" style="width:100%; border-radius:12px; margin:25px 0;">' if len(images) > 1 else img1
-            
-            clean = clean.replace("[[IMAGE_1]]", img1)
-            clean = clean.replace("[[IMAGE_2]]", img2)
-            
-            if len(clean) > 500:
-                return clean
-    except Exception as e:
-        print(f"❌ 작성 실패: {e}")
+    for attempt in range(3):
+        try:
+            res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, 
+                              headers={'Content-Type': 'application/json'}, 
+                              timeout=30)
+            if res.status_code == 200:
+                raw = res.json()['candidates'][0]['content']['parts'][0]['text']
+                clean = raw.replace("```html", "").replace("```", "").strip()
+                
+                # 치환
+                clean = clean.replace("[[DASHBOARD]]", dashboard)
+                clean = clean.replace("[[COMPANY_CARDS]]", make_company_cards(company_data))
+                
+                img1 = f'<img src="{images[0]}" style="width:100%; border-radius:12px; margin:25px 0;">' if len(images) > 0 else ""
+                img2 = f'<img src="{images[1]}" style="width:100%; border-radius:12px; margin:25px 0;">' if len(images) > 1 else img1
+                
+                clean = clean.replace("[[IMAGE_1]]", img1)
+                clean = clean.replace("[[IMAGE_2]]", img2)
+                
+                # 최소 길이 체크 완화 (300자 이상이면 OK)
+                if len(clean) > 300:
+                    print(f"✅ 글 작성 완료 ({len(clean)}자)")
+                    return clean
+                else:
+                    print(f"⚠️ 글이 너무 짧음 ({len(clean)}자), 재시도...")
+                    time.sleep(3)
+                    
+            elif res.status_code == 429:
+                print("⏳ Rate limit, 30초 대기...")
+                time.sleep(30)
+        except Exception as e:
+            print(f"❌ 시도 {attempt+1}/3 실패: {e}")
+            time.sleep(5)
     
     return None
 
