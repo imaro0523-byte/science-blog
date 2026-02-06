@@ -370,6 +370,35 @@ def get_relevant_images_webp(query):
     return []
 
 # =========================================================
+# [보조 함수] 마크다운 클리너 (강화 버전)
+# =========================================================
+def clean_markdown(text):
+    """모든 마크다운 문법을 HTML로 변환하거나 제거"""
+    # **bold** → <b>bold</b>
+    text = re.sub(r'\*\*([^\*]+)\*\*', r'<b>\1</b>', text)
+    
+    # *italic* → <i>italic</i>
+    text = re.sub(r'\*([^\*]+)\*', r'<i>\1</i>', text)
+    
+    # __bold__ → <b>bold</b>
+    text = re.sub(r'__([^_]+)__', r'<b>\1</b>', text)
+    
+    # _italic_ → <i>italic</i>
+    text = re.sub(r'_([^_]+)_', r'<i>\1</i>', text)
+    
+    # ### 헤더 제거 (HTML에서 <h2> 쓰니까)
+    text = text.replace('###', '').replace('##', '').replace('#', '')
+    
+    # 마크다운 코드 블록 표시 제거
+    text = text.replace('```', '')
+    
+    # 남은 ** 제거 (변환 실패한 경우)
+    text = text.replace('**', '')
+    text = text.replace('__', '')
+    
+    return text
+
+# =========================================================
 # [함수 10] 본문 작성 (강화 버전)
 # =========================================================
 def generate_content(news, images, dashboard, article_content, research_data, company_data):
@@ -453,7 +482,10 @@ def generate_content(news, images, dashboard, article_content, research_data, co
                               timeout=30)
             if res.status_code == 200:
                 raw = res.json()['candidates'][0]['content']['parts'][0]['text']
-                clean = raw.replace("```html", "").replace("```", "").strip()
+                
+                # ★ 마크다운 클리닝 추가!
+                clean = clean_markdown(raw)
+                clean = clean.replace("```html", "").replace("```", "").strip()
                 
                 # 치환
                 clean = clean.replace("[[DASHBOARD]]", dashboard)
