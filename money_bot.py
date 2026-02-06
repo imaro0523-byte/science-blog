@@ -32,7 +32,7 @@ try:
 except:
     print("⛔ 인증 토큰 로딩 실패")
 
-MODEL_NAME = "gemini-2.5-flash"
+MODEL_NAME = "gemini-3-flash-preview"
 
 # =========================================================
 # [함수 1] 통합 시장 대시보드
