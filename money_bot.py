@@ -34,7 +34,7 @@ except:
     print("⛔ 인증 토큰 로딩 실패")
     exit(1)
 
-MODEL_NAME = "gemini-2.0-flash-exp"  # ★ 모델명 수정
+MODEL_NAME = "gemini-2.5-flash"  # ★ 모델명 수정
 
 # =========================================================
 # [함수 1] 통합 시장 대시보드
@@ -148,6 +148,87 @@ def fetch_article_content(url):
     except Exception as e:
         print(f"⛔ 크롤링 에러: {e}")
         return None
+
+# =========================================================
+# [함수 4-1] ★ 비슷한 기사 여러 개 찾기 (크롤링 실패 시 대안)
+# =========================================================
+def find_related_articles(target_title, all_news_list):
+    """같은 주제의 다른 기사들 찾아서 크롤링 시도"""
+    print(f"🔍 비슷한 기사 찾는 중...")
+    
+    # 타겟 제목에서 핵심 키워드 추출 (간단하게 명사만)
+    target_keywords = set(target_title.split())
+    
+    related_articles = []
+    
+    for news in all_news_list:
+        if news.title == target_title:
+            continue  # 자기 자신은 제외
+        
+        # 제목 유사도 계산 (공통 단어 개수)
+        news_keywords = set(news.title.split())
+        common = target_keywords & news_keywords
+        
+        if len(common) >= 2:  # 공통 단어 2개 이상이면 관련 기사
+            related_articles.append(news)
+            if len(related_articles) >= 3:  # 최대 3개까지
+                break
+    
+    print(f"✅ 비슷한 기사 {len(related_articles)}개 발견")
+    
+    # 관련 기사들 크롤링 시도
+    combined_content = ""
+    for news in related_articles:
+        try:
+            downloaded = trafilatura.fetch_url(news.link)
+            if downloaded:
+                text = trafilatura.extract(downloaded, include_comments=False)
+                if text and len(text) > 100:
+                    combined_content += f"\n[관련 기사: {news.title[:50]}...]\n{text[:500]}\n"
+                    print(f"  ✅ 추가 기사 크롤링 성공")
+                    
+                    if len(combined_content) > 1500:
+                        break  # 충분히 수집
+        except:
+            continue
+    
+    if combined_content:
+        print(f"✅ 총 {len(combined_content)}자 수집 완료")
+        return combined_content
+    
+    return None
+
+# =========================================================
+# [함수 4-2] ★ AI에게 웹에서 정보 수집 요청 (최후 수단)
+# =========================================================
+def ask_ai_about_news(news_title):
+    """AI가 학습한 지식으로 뉴스 분석"""
+    print(f"🤖 AI 지식 기반으로 분석 중...")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
+    
+    prompt = f"""
+    다음 경제 뉴스에 대해 분석해주세요:
+    "{news_title}"
+    
+    다음 정보를 포함해서 3-4문단으로 설명해주세요:
+    1. 이 뉴스의 배경과 맥락
+    2. 관련된 경제 원리나 시장 메커니즘
+    3. 영향을 받을 것으로 예상되는 산업이나 기업
+    4. 시장에 미칠 영향 예측
+    """
+    
+    try:
+        res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, 
+                          headers={'Content-Type': 'application/json'}, timeout=15)
+        if res.status_code == 200:
+            text = res.json()['candidates'][0]['content']['parts'][0]['text']
+            if len(text) > 100:
+                print(f"✅ AI 분석 {len(text)}자 생성")
+                return text[:1500]
+    except Exception as e:
+        print(f"⚠️ AI 분석 실패: {e}")
+    
+    return None
 
 # =========================================================
 # [함수 5] ★ 관련 기업 리서치 (핵심 추가!)
@@ -446,8 +527,21 @@ def run_bot():
 
         print(f"\n✅ 선택: {target.title}\n{'='*60}\n")
 
-        # ★★★ 핵심 파이프라인 ★★★
+        # ★★★ 핵심 파이프라인: 3단계 폴백 시스템 ★★★
+        # 1단계: 원문 크롤링 시도
         article_content = fetch_article_content(target.link)
+        
+        # 2단계: 크롤링 실패 시 → 비슷한 기사들 찾아서 크롤링
+        if not article_content:
+            print("📡 Plan B: 비슷한 기사들에서 정보 수집 시도...")
+            article_content = find_related_articles(target.title, news_list)
+        
+        # 3단계: 그것도 실패 시 → AI가 뉴스 분석
+        if not article_content:
+            print("🤖 Plan C: AI 지식 기반으로 분석...")
+            article_content = ask_ai_about_news(target.title)
+        
+        # 5단계: 기업 리서치
         research_data = research_companies(target.title, article_content)
         
         company_data = []
