@@ -434,12 +434,10 @@ def generate_content(news, images, dashboard, article_content, research_data, co
     5. 리스크 요인도 함께 언급
     
     [HTML 구조]
-    [[DASHBOARD]]
     
     <h2>🔥 [독자의 관심을 끄는 소제목]</h2>
     <p>[이 뉴스가 왜 중요한지 후킹 - 3문장]</p>
     
-    [[IMAGE_1]]
     
     <h2>📚 경제 원리 해부</h2>
     <p>[이 뉴스와 관련된 경제 개념 설명 - 5문장 이상]</p>
