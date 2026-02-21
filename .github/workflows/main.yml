@@ -1,9 +1,9 @@
 name: Daily Science Post
 on:
   schedule:
-    # 한국 시간: 09:00, 14:00, 19:00
-    # UTC 시간: 00:00, 05:00, 10:00
-    - cron: '0 0,5,10 * * *'
+    # 한국 시간: 09:00, 14:00
+    # UTC 시간: 00:00, 05:00
+    - cron: '0 0,5 * * *'
   workflow_dispatch: # 수동 실행 버튼 유지
 
 jobs:
