@@ -34,92 +34,49 @@ MODEL_NAME = "gemini-2.5-flash"
 # [함수 1] 암호화폐 대시보드
 # =========================================================
 def get_crypto_dashboard_html():
-    print("📊 암호화폐 데이터 수집 중...")
-    
-    # CoinGecko API로 주요 코인 가격 가져오기
+    print("📊 암호화폐 데이터 수집...")
     crypto_data = {}
     
     try:
-        url = "https://api.coingecko.com/api/v3/simple/price"
-        params = {
-            "ids": "bitcoin,ethereum,binancecoin,ripple,cardano",
-            "vs_currencies": "krw",
-            "include_24hr_change": "true"
-        }
-        res = requests.get(url, params=params, timeout=10).json()
+        res = requests.get("https://api.coingecko.com/api/v3/simple/price", 
+                         params={"ids": "bitcoin,ethereum,binancecoin,ripple,cardano", 
+                                "vs_currencies": "krw", "include_24hr_change": "true"}, timeout=10).json()
         
         crypto_data = {
-            "btc": {"price": res.get('bitcoin', {}).get('krw', 0), 
-                   "chg": res.get('bitcoin', {}).get('krw_24h_change', 0), 
-                   "name": "비트코인"},
-            "eth": {"price": res.get('ethereum', {}).get('krw', 0), 
-                   "chg": res.get('ethereum', {}).get('krw_24h_change', 0), 
-                   "name": "이더리움"},
-            "bnb": {"price": res.get('binancecoin', {}).get('krw', 0), 
-                   "chg": res.get('binancecoin', {}).get('krw_24h_change', 0), 
-                   "name": "바이낸스코인"},
-            "xrp": {"price": res.get('ripple', {}).get('krw', 0), 
-                   "chg": res.get('ripple', {}).get('krw_24h_change', 0), 
-                   "name": "리플"},
-            "ada": {"price": res.get('cardano', {}).get('krw', 0), 
-                   "chg": res.get('cardano', {}).get('krw_24h_change', 0), 
-                   "name": "카르다노"}
+            "btc": {"price": res.get('bitcoin', {}).get('krw', 0), "chg": res.get('bitcoin', {}).get('krw_24h_change', 0), "name": "비트코인"},
+            "eth": {"price": res.get('ethereum', {}).get('krw', 0), "chg": res.get('ethereum', {}).get('krw_24h_change', 0), "name": "이더리움"},
+            "bnb": {"price": res.get('binancecoin', {}).get('krw', 0), "chg": res.get('binancecoin', {}).get('krw_24h_change', 0), "name": "바이낸스코인"},
+            "xrp": {"price": res.get('ripple', {}).get('krw', 0), "chg": res.get('ripple', {}).get('krw_24h_change', 0), "name": "리플"},
+            "ada": {"price": res.get('cardano', {}).get('krw', 0), "chg": res.get('cardano', {}).get('krw_24h_change', 0), "name": "카르다노"}
         }
-    except Exception as e:
-        print(f"⚠️ 암호화폐 데이터 실패: {e}")
-        # 실패 시 빈 데이터
+    except:
         for key in ['btc', 'eth', 'bnb', 'xrp', 'ada']:
-            if key not in crypto_data:
-                crypto_data[key] = {"price": 0, "chg": 0, "name": key.upper()}
+            crypto_data[key] = {"price": 0, "chg": 0, "name": key.upper()}
 
     def get_style(chg):
-        color = "#d63031" if chg >= 0 else "#0984e3"
-        arrow = "▲" if chg >= 0 else "▼"
-        return color, arrow
+        return ("#d63031", "▲") if chg >= 0 else ("#0984e3", "▼")
 
     items_html = ""
     for key in ['btc', 'eth', 'bnb', 'xrp', 'ada']:
         color, arrow = get_style(crypto_data[key]['chg'])
-        price_fmt = f"{crypto_data[key]['price']:,.0f}"
-        
-        items_html += f"""
-        <div style="flex: 1 1 18%; min-width: 100px; margin: 5px; padding: 10px; background: #fff; border-radius: 8px; border: 1px solid #eee; text-align: center;">
-            <div style="font-size: 11px; color: #888;">{crypto_data[key]['name']}</div>
-            <div style="font-size: 14px; font-weight: 800; color: {color};">{arrow} ₩{price_fmt}</div>
-            <div style="font-size: 10px; color: {color};">({crypto_data[key]['chg']:.2f}%)</div>
-        </div>"""
+        items_html += f'<div style="flex: 1 1 18%; min-width: 100px; margin: 5px; padding: 10px; background: #fff; border-radius: 8px; text-align: center;"><div style="font-size: 11px; color: #888;">{crypto_data[key]["name"]}</div><div style="font-size: 14px; font-weight: 800; color: {color};">{arrow} ₩{crypto_data[key]["price"]:,.0f}</div><div style="font-size: 10px; color: {color};">({crypto_data[key]["chg"]:.2f}%)</div></div>'
     
-    return f"""
-    <div style="font-family: -apple-system; margin-bottom: 30px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; padding: 15px;">
-        <h3 style="text-align: center; margin: 0 0 10px 0; font-size: 16px; color: white;">🪙 Crypto Market Flow</h3>
-        <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 5px;">{items_html}</div>
-    </div>"""
+    return f'<div style="font-family: -apple-system; margin-bottom: 30px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; padding: 15px;"><h3 style="text-align: center; margin: 0 0 10px 0; font-size: 16px; color: white;">🪙 Crypto Market Flow</h3><div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 5px;">{items_html}</div></div>'
 
-# =========================================================
-# [함수 2] 암호화폐 뉴스 가져오기
-# =========================================================
+# [함수 2-6] 뉴스, 중복, 크롤링, 관련기사, AI분석 (동일)
 def get_crypto_news_list():
     print("🔍 암호화폐 뉴스 검색...")
-    
-    # 방법 1: 구글 뉴스에서 암호화폐 키워드 검색
-    rss_url = "https://news.google.com/rss/search?q=암호화폐+OR+비트코인+OR+알트코인+when:1d&hl=ko&gl=KR&ceid=KR:ko"
-    
     try:
-        feed = feedparser.parse(rss_url)
+        feed = feedparser.parse("https://news.google.com/rss/search?q=암호화폐+OR+비트코인+OR+알트코인+when:1d&hl=ko&gl=KR")
         if feed.entries:
-            print(f"✅ {len(feed.entries[:10])}개 뉴스 발견")
-            return feed.entries[:10]  # 상위 10개
-    except Exception as e:
-        print(f"⛔ 뉴스 검색 에러: {e}")
+            return feed.entries[:10]
+    except:
+        pass
     return []
 
-# =========================================================
-# [함수 3-6] 중복확인, 크롤링, 관련기사, AI분석
-# =========================================================
 def check_is_duplicate(service, news_title):
     try:
-        posts = service.posts().list(blogId=BLOG_ID, maxResults=10).execute()
-        for post in posts.get('items', []):
+        for post in service.posts().list(blogId=BLOG_ID, maxResults=10).execute().get('items', []):
             if news_title in post.get('content', ''):
                 return True
     except:
@@ -127,128 +84,115 @@ def check_is_duplicate(service, news_title):
     return False
 
 def fetch_article_content(url):
-    print(f"📰 기사 크롤링...")
+    print(f"📰 크롤링...")
     try:
         downloaded = trafilatura.fetch_url(url)
         if downloaded:
-            text = trafilatura.extract(downloaded, include_comments=False)
+            text = trafilatura.extract(downloaded)
             if text and len(text) > 100:
-                print(f"✅ {len(text)}자 추출")
+                print(f"✅ {len(text)}자")
                 return text[:2500]
-    except Exception as e:
-        print(f"⚠️ 크롤링 실패: {e}")
+    except:
+        pass
     return None
 
 def find_related_articles(target_title, all_news_list):
-    print("🔍 비슷한 기사 찾기...")
-    target_keywords = set(target_title.split())
-    related = []
-    
-    for news in all_news_list:
-        if news.title == target_title:
-            continue
-        if len(set(news.title.split()) & target_keywords) >= 2:
-            related.append(news)
-            if len(related) >= 3:
-                break
-    
+    print("🔍 비슷한 기사...")
+    related = [news for news in all_news_list if news.title != target_title and len(set(news.title.split()) & set(target_title.split())) >= 2][:3]
     combined = ""
     for news in related:
         try:
-            downloaded = trafilatura.fetch_url(news.link)
-            if downloaded:
-                text = trafilatura.extract(downloaded)
-                if text:
-                    combined += f"\n{text[:600]}\n"
-                    if len(combined) > 1800:
-                        break
+            text = trafilatura.extract(trafilatura.fetch_url(news.link))
+            if text:
+                combined += f"\n{text[:600]}\n"
+                if len(combined) > 1800:
+                    break
         except:
             continue
-    
-    if combined:
-        print(f"✅ {len(combined)}자 수집")
     return combined if combined else None
 
 def ask_ai_about_crypto(news_title):
     print("🤖 AI 분석...")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
-    prompt = f"'{news_title}' 암호화폐 뉴스를 4-5문단으로 분석: 배경, 블록체인 원리, 시장 영향, 향후 전망"
-    
     try:
-        res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=20)
+        res = requests.post(url, json={"contents": [{"parts": [{"text": f"'{news_title}' 암호화폐 뉴스 5-6문단 심층 분석"}]}]}, timeout=20)
         if res.status_code == 200:
             text = res.json()['candidates'][0]['content']['parts'][0]['text']
             if len(text) > 150:
-                print(f"✅ {len(text)}자 생성")
-                return text[:2000]
+                return text[:2500]
     except:
         pass
     return None
 
 # =========================================================
-# [함수 7] 암호화폐 정보 리서치
+# [함수 7] ★ 블록체인/암호화폐 심층 리서치 (핵심!)
 # =========================================================
-def research_crypto_coins(news_title, article_content):
-    print("🔬 코인 리서치...")
+def research_crypto_deeply(news_title, article_content):
+    """블록체인 원리, 역사, 규제, 전망 등 심층 분석"""
+    print("🔬 블록체인 원리 심층 리서치...")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
-    context = article_content[:1000] if article_content else news_title
     
-    prompt = f"""{context}
-
-이 뉴스와 관련된 암호화폐 코인들을 찾아주세요:
-1. 주요 코인 2-3개 (예: Bitcoin, Ethereum, Cardano)
-2. 각 코인의 현재 시가총액 순위
-3. 각 코인의 핵심 기술 특징
-
-JSON으로 출력:
-{{
-  "coins": [
-    {{"name": "Bitcoin", "symbol": "BTC", "tech": "작업증명", "rank": 1}},
-    {{"name": "Ethereum", "symbol": "ETH", "tech": "스마트 컨트랙트", "rank": 2}}
-  ]
-}}"""
+    context = f"기사: {article_content[:1500]}" if article_content else f"제목: {news_title}"
+    
+    prompt = f"""
+    암호화폐 뉴스를 심층 분석하세요.
+    
+    {context}
+    
+    다음 항목을 각 3-4문장으로:
+    1. 블록체인 기술 원리: 작업증명/지분증명, 스마트 컨트랙트, 합의 알고리즘 등 기술적 메커니즘
+    2. 암호화폐 역사: 비트코인 탄생부터 현재까지, 주요 사건 (Mt.Gox 사태, 비트코인 반감기, DeFi 붐 등)
+    3. 규제 환경: 각국 정부의 암호화폐 정책, 법적 지위, 규제 동향
+    4. 시장 심리: 투자자 sentiment, Fear & Greed Index, 온체인 지표
+    5. 미래 전망: DeFi, NFT, Web3 등 미래 응용 가능성
+    
+    JSON 출력:
+    {{
+      "blockchain_tech": "...",
+      "crypto_history": "...",
+      "regulation": "...",
+      "market_sentiment": "...",
+      "future_outlook": "..."
+    }}
+    """
     
     try:
-        res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=15)
+        res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=20)
         if res.status_code == 200:
             raw = res.json()['candidates'][0]['content']['parts'][0]['text']
             match = re.search(r'\{.*\}', raw, re.DOTALL)
             if match:
-                data = json.loads(match.group())
-                print(f"✅ 코인 정보 획득")
-                return data
+                print("✅ 리서치 완료")
+                return json.loads(match.group())
+    except:
+        pass
+    return None
+
+# [함수 8] 코인 정보
+def research_crypto_coins(news_title, article_content):
+    print("🪙 코인 리서치...")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
+    context = article_content[:1000] if article_content else news_title
+    
+    try:
+        res = requests.post(url, json={"contents": [{"parts": [{"text": f"{context}\n\n관련 코인 2-3개 JSON: {{'coins':[{{'name':'Bitcoin','symbol':'BTC'}}]}}"}]}]}, timeout=15)
+        if res.status_code == 200:
+            match = re.search(r'\{.*\}', res.json()['candidates'][0]['content']['parts'][0]['text'], re.DOTALL)
+            if match:
+                return json.loads(match.group())
     except:
         pass
     return None
 
 def get_coin_price_data(coin_symbols):
-    """CoinGecko에서 실시간 코인 가격 정보"""
-    print("💰 코인 가격 데이터 수집...")
-    
-    # 심볼 → CoinGecko ID 매핑
-    symbol_to_id = {
-        'BTC': 'bitcoin',
-        'ETH': 'ethereum',
-        'BNB': 'binancecoin',
-        'XRP': 'ripple',
-        'ADA': 'cardano',
-        'SOL': 'solana',
-        'DOT': 'polkadot',
-        'DOGE': 'dogecoin',
-        'MATIC': 'matic-network',
-        'LINK': 'chainlink'
-    }
-    
+    print("💰 코인 가격...")
+    symbol_to_id = {'BTC':'bitcoin','ETH':'ethereum','BNB':'binancecoin','XRP':'ripple','ADA':'cardano','SOL':'solana','DOT':'polkadot','DOGE':'dogecoin'}
     coin_data = []
     
-    for symbol in coin_symbols[:3]:  # 최대 3개
-        symbol_upper = symbol.upper()
-        coin_id = symbol_to_id.get(symbol_upper, symbol.lower())
-        
+    for symbol in coin_symbols[:3]:
+        coin_id = symbol_to_id.get(symbol.upper(), symbol.lower())
         try:
-            url = f"https://api.coingecko.com/api/v3/coins/{coin_id}"
-            res = requests.get(url, timeout=10).json()
-            
+            res = requests.get(f"https://api.coingecko.com/api/v3/coins/{coin_id}", timeout=10).json()
             coin_data.append({
                 'name': res['name'],
                 'symbol': res['symbol'].upper(),
@@ -257,40 +201,26 @@ def get_coin_price_data(coin_symbols):
                 'change_24h': f"{res['market_data']['price_change_percentage_24h']:.2f}%",
                 'rank': res['market_cap_rank']
             })
-            print(f"  ✅ {res['name']}")
         except:
             continue
-    
     return coin_data
 
 def make_coin_cards(coin_data):
     if not coin_data:
         return ""
-    
     cards = '<div style="display: flex; flex-wrap: wrap; gap: 15px; margin: 25px 0;">'
     for c in coin_data:
-        change_color = "#d63031" if float(c['change_24h'].replace('%', '')) >= 0 else "#0984e3"
-        
-        cards += f"""
-        <div style="flex: 1 1 calc(50% - 15px); min-width: 250px; background: linear-gradient(135deg, #667eea22 0%, #764ba233 100%); border-radius: 12px; padding: 20px; border-left: 4px solid #667eea;">
-            <h3 style="margin: 0 0 10px 0;">{c['name']} ({c['symbol']})</h3>
-            <p style="margin: 5px 0; font-size: 13px;"><b>순위:</b> #{c['rank']}</p>
-            <p style="margin: 5px 0; font-size: 13px;"><b>현재가:</b> {c['price']}</p>
-            <p style="margin: 5px 0; font-size: 13px;"><b>시총:</b> {c['market_cap']}</p>
-            <p style="margin: 5px 0; font-size: 13px; color: {change_color};"><b>24h 변동:</b> {c['change_24h']}</p>
-        </div>"""
+        color = "#d63031" if float(c['change_24h'].replace('%', '')) >= 0 else "#0984e3"
+        cards += f'<div style="flex: 1 1 calc(50% - 15px); min-width: 250px; background: linear-gradient(135deg, #667eea22, #764ba233); border-radius: 12px; padding: 20px; border-left: 4px solid #667eea;"><h3 style="margin: 0 0 10px 0;">{c["name"]} ({c["symbol"]})</h3><p style="margin: 5px 0; font-size: 13px;"><b>순위:</b> #{c["rank"]}</p><p style="margin: 5px 0; font-size: 13px;"><b>현재가:</b> {c["price"]}</p><p style="margin: 5px 0; font-size: 13px;"><b>시총:</b> {c["market_cap"]}</p><p style="margin: 5px 0; font-size: 13px; color: {color};"><b>24h:</b> {c["change_24h"]}</p></div>'
     cards += '</div>'
     return cards
 
-# =========================================================
-# [함수 8-9] 키워드, 이미지
-# =========================================================
+# [함수 9-11] 키워드, 이미지, 클리너
 def get_search_keywords(news_title):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
-    prompt = f"'{news_title}' 영어 키워드 2개만 콤마로"
     try:
-        resp = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=10)
-        return resp.json()['candidates'][0]['content']['parts'][0]['text'].strip()
+        res = requests.post(f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}", 
+                          json={"contents": [{"parts": [{"text": f"'{news_title}' 영어 키워드 2개"}]}]}, timeout=10)
+        return res.json()['candidates'][0]['content']['parts'][0]['text'].strip()
     except:
         return "cryptocurrency, blockchain"
 
@@ -298,126 +228,126 @@ def get_relevant_images_webp(query):
     if not PEXELS_API_KEY:
         return []
     try:
-        resp = requests.get("https://api.pexels.com/v1/search", 
-                          headers={"Authorization": PEXELS_API_KEY}, 
-                          params={"query": query, "per_page": 2}, timeout=10)
+        resp = requests.get("https://api.pexels.com/v1/search", headers={"Authorization": PEXELS_API_KEY}, params={"query": query, "per_page": 2}, timeout=10)
         if resp.status_code == 200:
-            return [p['src']['original']+"?auto=compress&fm=webp&w=800" for p in resp.json().get('photos', [])]
+            return [p['src']['original']+"?w=800" for p in resp.json().get('photos', [])]
     except:
         pass
     return []
 
-# =========================================================
-# [함수 10] 마크다운 클리너
-# =========================================================
 def clean_markdown(text):
     text = re.sub(r'\*\*([^\*]+)\*\*', r'<strong>\1</strong>', text)
     text = re.sub(r'\*([^\*]+)\*', r'<em>\1</em>', text)
-    text = text.replace('###', '').replace('##', '').replace('#', '')
-    text = text.replace('```', '').replace('**', '').replace('__', '')
+    text = text.replace('###', '').replace('##', '').replace('```', '').replace('**', '')
     text = re.sub(r'<i>(\d+)</i>', r'\1', text)
-    text = re.sub(r'</i>', '', text)
-    text = re.sub(r'<i>', '', text)
-    return text
+    return re.sub(r'</i>|<i>', '', text)
 
 # =========================================================
-# [함수 11] ★ 암호화폐 심층 칼럼 작성
+# [함수 12] ★ 심층 암호화폐 칼럼
 # =========================================================
-def generate_crypto_content(news, images, dashboard, article_content, coin_data):
-    print("🧠 암호화폐 칼럼 작성...")
+def generate_deep_crypto_content(news, images, dashboard, article_content, research_data, coin_data):
+    print("🧠 심층 암호화폐 칼럼...")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
     
-    article_part = f"[기사 발췌]\n{article_content[:1200]}" if article_content else ""
+    article_part = f"[기사]\n{article_content[:1200]}" if article_content else ""
+    
+    research_section = ""
+    if research_data:
+        research_section = f"""
+[참고 지식]
+- 블록체인 기술: {research_data.get('blockchain_tech', 'N/A')}
+- 암호화폐 역사: {research_data.get('crypto_history', 'N/A')}
+- 규제 환경: {research_data.get('regulation', 'N/A')}
+- 시장 심리: {research_data.get('market_sentiment', 'N/A')}
+- 미래 전망: {research_data.get('future_outlook', 'N/A')}
+"""
+    
     coin_summary = ""
     if coin_data:
-        coin_summary = "\n[관련 코인]\n" + "\n".join([f"- {c['name']}({c['symbol']}): 순위 #{c['rank']}, {c['price']}" for c in coin_data])
+        coin_summary = "\n[관련 코인]\n" + "\n".join([f"- {c['name']}({c['symbol']}): #{c['rank']}, {c['price']}" for c in coin_data])
     
     prompt = f"""
-    암호화폐 전문 애널리스트로서 심층 분석 작성.
+    암호화폐 전문 애널리스트로서 교과서 수준의 심층 해설 작성.
     
     [뉴스] {news.title}
     {article_part}
+    {research_section}
     {coin_summary}
     
-    HTML 구조:
-    DASHBOARDHERE
-    <h2>🔥 [도발적 소제목]</h2>
-    <p>[후킹: 돈/기회 자극 3문장]</p>
-    IMAGE1HERE
-    <h2>⛓️ 블록체인 원리</h2>
-    <p>[기술 원리 설명 5문장]</p>
-    <h2>🪙 주목할 코인들</h2>
-    <p>[코인 분석 4문장]</p>
-    COINCARDSHERE
-    IMAGE2HERE
-    <h2>📈 시장 전망과 기회</h2>
-    <p>[투자 인사이트 4문장]</p>
-    <h2>⚠️ 리스크 요인</h2>
-    <p>[위험 요소 3문장]</p>
-    <p><strong>결론:</strong> [1문장]</p>
-    <hr><p style="color:grey; font-size:0.85em;">📰 출처: {news.title}<br>⚠️ 투자 판단은 본인 책임입니다.</p>
+    [가이드 - 깊이 있는 분석]
+    1. **블록체인 원리**: 기술을 비전공자도 이해하게
+    2. **역사 비교**: 과거 암호화폐 사건과 비교
+    3. **규제 분석**: 각국 정책이 미치는 영향
+    4. **다각적 관점**: 찬반 의견 모두
+    5. **충분한 길이**: 1500자 이상
     
-    규칙: HTML만 출력, 해요체, 각 섹션 3문장 이상
+    HTML:
+    DASHBOARDHERE
+    <h2>🔥 소제목</h2>
+    <p>후킹 4문장</p>
+    IMAGE1HERE
+    <h2>⛓️ 블록체인 기술 원리</h2>
+    <p>작동 방식 7문장</p>
+    <ul><li>원리 1</li><li>원리 2</li><li>원리 3</li></ul>
+    <h2>📖 암호화폐의 역사</h2>
+    <p>비트코인부터 현재까지 5문장</p>
+    <h2>⚖️ 규제와 법적 지위</h2>
+    <p>각국 정책 6문장</p>
+    IMAGE2HERE
+    <h2>🪙 주목할 코인들</h2>
+    <p>코인 분석 4문장</p>
+    COINCARDSHERE
+    <h2>🚀 미래: DeFi와 Web3</h2>
+    <p>미래 응용 5문장</p>
+    <h2>⚠️ 투자 리스크</h2>
+    <p>위험 요소 4문장</p>
+    <p><strong>결론:</strong> 2문장</p>
+    <hr><p style="color:grey; font-size:0.85em;">📰 출처: {news.title}<br>⚠️ 투자 책임은 본인에게</p>
+    
+    규칙: HTML만, 해요체, 4문장 이상/섹션
     """
     
     for attempt in range(3):
         try:
-            res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=30)
+            res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=40)
             if res.status_code == 200:
-                raw = res.json()['candidates'][0]['content']['parts'][0]['text']
+                clean = clean_markdown(res.json()['candidates'][0]['content']['parts'][0]['text']).replace("```html", "").replace("```", "").strip()
                 
-                clean = clean_markdown(raw)
-                clean = clean.replace("```html", "").replace("```", "").strip()
-                
-                # 치환
-                clean = clean.replace("DASHBOARDHERE", dashboard)
-                clean = clean.replace("[[DASHBOARD]]", dashboard)
-                
-                cards_html = make_coin_cards(coin_data)
-                clean = clean.replace("COINCARDSHERE", cards_html)
-                clean = clean.replace("[[COIN_CARDS]]", cards_html)
-                clean = clean.replace("[[COINCARDS]]", cards_html)
+                clean = clean.replace("DASHBOARDHERE", dashboard).replace("[[DASHBOARD]]", dashboard)
+                clean = clean.replace("COINCARDSHERE", make_coin_cards(coin_data)).replace("[[COIN_CARDS]]", make_coin_cards(coin_data))
                 
                 img1 = f'<img src="{images[0]}" style="width:100%; border-radius:12px; margin:25px 0;">' if len(images) > 0 else ""
                 img2 = f'<img src="{images[1]}" style="width:100%; border-radius:12px; margin:25px 0;">' if len(images) > 1 else img1
+                clean = clean.replace("IMAGE1HERE", img1).replace("IMAGE2HERE", img2).replace("[[IMAGE_1]]", img1).replace("[[IMAGE_2]]", img2)
                 
-                clean = clean.replace("IMAGE1HERE", img1)
-                clean = clean.replace("IMAGE2HERE", img2)
-                clean = clean.replace("[[IMAGE_1]]", img1)
-                clean = clean.replace("[[IMAGE_2]]", img2)
-                
-                if len(clean) > 500:
-                    print(f"✅ {len(clean)}자 완성")
+                if len(clean) > 1200:
+                    print(f"✅ {len(clean)}자")
                     return clean
-                    
             time.sleep(3)
         except Exception as e:
-            print(f"❌ 시도 {attempt+1}: {e}")
+            print(f"❌ {attempt+1}: {e}")
             time.sleep(5)
     return None
 
 def generate_title(news_title):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
-    prompt = f"'{news_title}' 암호화폐 블로그 제목 1개만. 투자 기회 강조. 특수문자 금지."
     try:
-        res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=10)
-        title = res.json()['candidates'][0]['content']['parts'][0]['text'].strip()
-        return title.split('\n')[0].replace('"', '').replace('*', '').strip()
+        res = requests.post(f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}", 
+                          json={"contents": [{"parts": [{"text": f"'{news_title}' 암호화폐 블로그 제목 1개"}]}]}, timeout=10)
+        return res.json()['candidates'][0]['content']['parts'][0]['text'].strip().split('\n')[0].replace('"', '').replace('*', '')
     except:
         return news_title
 
 # =========================================================
-# [메인 실행]
+# [메인]
 # =========================================================
 def run_bot():
-    print("▶️ 암호화폐 블로그 봇 시작")
+    print("▶️ 암호화폐 심층 분석 봇 (애드센스용)")
     try:
         creds = Credentials.from_authorized_user_info(TOKEN_JSON)
         service = build('blogger', 'v3', credentials=creds)
 
         news_list = get_crypto_news_list()
         if not news_list:
-            print("❌ 뉴스 없음")
             return
 
         target = None
@@ -435,25 +365,26 @@ def run_bot():
 
         print(f"\n✅ 선택: {target.title}\n{'='*60}\n")
 
-        # 3단계 폴백
+        # ★★★ 강화된 파이프라인 ★★★
         article_content = fetch_article_content(target.link)
         if not article_content:
             article_content = find_related_articles(target.title, news_list)
         if not article_content:
             article_content = ask_ai_about_crypto(target.title)
         
-        # 코인 리서치
-        research_data = research_crypto_coins(target.title, article_content)
+        # ★ 심층 리서치
+        research_data = research_crypto_deeply(target.title, article_content)
+        
+        coin_research = research_crypto_coins(target.title, article_content)
         coin_data = []
-        if research_data and 'coins' in research_data:
-            symbols = [c['symbol'] for c in research_data['coins']]
-            coin_data = get_coin_price_data(symbols)
+        if coin_research and 'coins' in coin_research:
+            coin_data = get_coin_price_data([c['symbol'] for c in coin_research['coins']])
         
         keywords = get_search_keywords(target.title)
         images = get_relevant_images_webp(keywords)
         dashboard = get_crypto_dashboard_html()
         
-        content = generate_crypto_content(target, images, dashboard, article_content, coin_data)
+        content = generate_deep_crypto_content(target, images, dashboard, article_content, research_data, coin_data)
         if not content:
             print("❌ 작성 실패")
             return
