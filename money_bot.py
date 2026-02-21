@@ -34,7 +34,7 @@ except:
     print("⛔ 인증 토큰 로딩 실패")
     exit(1)
 
-MODEL_NAME = "gemini-2.5-flash"  # ★ 모델명 수정
+MODEL_NAME = "gemini-3.1-pro-preview"  # ★ 모델명 수정
 
 # =========================================================
 # [함수 1] 통합 시장 대시보드
