@@ -1,259 +1,438 @@
 import os
 import json
 import time
+import re
 import requests
 import feedparser
+import trafilatura
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
 # =========================================================
-# [설정 구역] GitHub Secrets 가져오기
+# [설정 구역]
 # =========================================================
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 BLOG_ID = os.environ.get('BLOG_ID')
 PEXELS_API_KEY = os.environ.get('PEXELS_API_KEY')
 
 try:
-    client_env = os.environ.get('CLIENT_JSON')
-    token_env = os.environ.get('TOKEN_JSON')
-    
-    if not client_env or not token_env or not PEXELS_API_KEY:
-        raise ValueError("GitHub Secrets 필수 값 누락")
-        
-    CLIENT_JSON = json.loads(client_env)
-    TOKEN_JSON = json.loads(token_env)
-except Exception as e:
-    print(f"⛔ 설정 로딩 에러: {e}")
+    CLIENT_JSON = json.loads(os.environ.get('CLIENT_JSON', '{}'))
+    TOKEN_JSON = json.loads(os.environ.get('TOKEN_JSON', '{}'))
+except:
+    print("⛔ 인증 토큰 로딩 실패")
     exit(1)
 
-# =========================================================
-# [함수 1] 모델 선택 (Gemini 2.5 Flash 고정)
-# =========================================================
 MODEL_NAME = "gemini-3-flash-preview"
 
 # =========================================================
-# [함수 2] (수정됨) 뉴스 리스트 가져오기 (최대 5개)
+# [함수 1] 뉴스 리스트 가져오기
 # =========================================================
 def get_science_news_list():
-    print("🔍 구글 뉴스 과학 섹션 헤드라인 리스트 검색...")
+    print("🔍 구글 뉴스 과학 섹션 검색...")
     rss_url = "https://news.google.com/rss/headlines/section/topic/SCIENCE?hl=ko&gl=KR&ceid=KR:ko"
     try:
         feed = feedparser.parse(rss_url)
         if feed.entries:
-            # 상위 5개 뉴스만 가져옵니다.
-            top_5_news = feed.entries[:5]
-            print(f"✅ 총 {len(top_5_news)}개의 최신 뉴스를 가져왔습니다.")
-            return top_5_news
+            return feed.entries[:5]
     except Exception as e:
         print(f"⛔ 뉴스 검색 에러: {e}")
     return []
 
 # =========================================================
-# [함수 3] 중복 포스팅 확인 함수
+# [함수 2] 중복 확인
 # =========================================================
 def check_is_duplicate(service, news_title):
     try:
-        # 최근 게시글 10개 검사 (범위를 조금 늘림)
         posts = service.posts().list(blogId=BLOG_ID, maxResults=10).execute()
-        items = posts.get('items', [])
-        
-        for post in items:
+        for post in posts.get('items', []):
             if news_title in post.get('content', ''):
-                return True # 중복임
-        return False # 새 글임
-    except Exception as e:
-        print(f"⚠️ 중복 확인 중 에러 (진행함): {e}")
+                return True
+        return False
+    except:
         return False
 
 # =========================================================
-# [함수 4] 키워드 추출
+# [함수 3] ★ 원문 크롤링
+# =========================================================
+def fetch_article_content(url):
+    print(f"📰 기사 본문 크롤링 중...")
+    try:
+        downloaded = trafilatura.fetch_url(url)
+        if downloaded:
+            text = trafilatura.extract(downloaded, include_comments=False)
+            if text and len(text) > 100:
+                print(f"✅ 본문 {len(text)}자 추출 성공")
+                return text[:2500]
+        print("⚠️ 본문 추출 실패")
+        return None
+    except Exception as e:
+        print(f"⛔ 크롤링 에러: {e}")
+        return None
+
+# =========================================================
+# [함수 4] ★ 비슷한 기사 여러 개 찾기 (Plan B)
+# =========================================================
+def find_related_articles(target_title, all_news_list):
+    print(f"🔍 비슷한 기사 찾는 중...")
+    target_keywords = set(target_title.split())
+    related_articles = []
+    
+    for news in all_news_list:
+        if news.title == target_title:
+            continue
+        news_keywords = set(news.title.split())
+        common = target_keywords & news_keywords
+        if len(common) >= 2:
+            related_articles.append(news)
+            if len(related_articles) >= 3:
+                break
+    
+    print(f"✅ 비슷한 기사 {len(related_articles)}개 발견")
+    
+    combined_content = ""
+    for news in related_articles:
+        try:
+            downloaded = trafilatura.fetch_url(news.link)
+            if downloaded:
+                text = trafilatura.extract(downloaded, include_comments=False)
+                if text and len(text) > 100:
+                    combined_content += f"\n[관련 기사: {news.title[:50]}...]\n{text[:600]}\n"
+                    print(f"  ✅ 추가 기사 크롤링 성공")
+                    if len(combined_content) > 1800:
+                        break
+        except:
+            continue
+    
+    if combined_content:
+        print(f"✅ 총 {len(combined_content)}자 수집 완료")
+        return combined_content
+    return None
+
+# =========================================================
+# [함수 5] ★ AI 지식 기반 분석 (Plan C)
+# =========================================================
+def ask_ai_about_science(news_title):
+    print(f"🤖 AI 지식 기반으로 과학 분석 중...")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
+    
+    prompt = f"""
+    다음 과학 뉴스에 대해 전문가 수준으로 분석해주세요:
+    "{news_title}"
+    
+    다음 내용을 포함하여 4-5문단으로 설명:
+    1. 이 뉴스의 과학적 배경과 맥락
+    2. 관련된 과학 원리나 법칙 (교과서 수준 설명)
+    3. 역사적으로 이어져온 연구 흐름
+    4. 이 발견이 과학계/사회에 미칠 영향
+    5. 아직 해결되지 않은 과제나 한계
+    """
+    
+    try:
+        res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, 
+                          headers={'Content-Type': 'application/json'}, timeout=20)
+        if res.status_code == 200:
+            text = res.json()['candidates'][0]['content']['parts'][0]['text']
+            if len(text) > 150:
+                print(f"✅ AI 분석 {len(text)}자 생성")
+                return text[:2000]
+    except Exception as e:
+        print(f"⚠️ AI 분석 실패: {e}")
+    return None
+
+# =========================================================
+# [함수 6] ★ 과학 원리 심층 리서치
+# =========================================================
+def research_science_deeply(news_title, article_content):
+    print("🔬 과학 원리 심층 리서치 중...")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
+    
+    context = f"기사 내용: {article_content[:1500]}" if article_content else f"제목: {news_title}"
+    
+    prompt = f"""
+    다음 과학 뉴스를 분석하여 독자들이 알아야 할 과학 지식을 정리해주세요.
+    
+    {context}
+    
+    다음 항목들을 각각 3-4문장으로 상세히 설명:
+    1. 핵심 과학 원리: 기본 법칙, 이론, 메커니즘 (예: 양자역학, DNA 복제 등)
+    2. 실험/연구 방법: 어떤 장비와 방법 사용 (예: 전자현미경, PCR 등)
+    3. 역사적 배경: 과거 어떤 연구의 연장선상인지, 관련 노벨상 등
+    4. 학계 평가: 재현성, 신뢰도, 논쟁 여부
+    5. 미래 응용: 5-10년 후 기술 응용 가능성
+    
+    JSON으로 출력:
+    {{
+      "scientific_principle": "...",
+      "research_method": "...",
+      "historical_context": "...",
+      "academic_evaluation": "...",
+      "future_application": "..."
+    }}
+    """
+    
+    try:
+        res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, 
+                          headers={'Content-Type': 'application/json'}, timeout=15)
+        if res.status_code == 200:
+            raw = res.json()['candidates'][0]['content']['parts'][0]['text']
+            match = re.search(r'\{.*\}', raw, re.DOTALL)
+            if match:
+                data = json.loads(match.group())
+                print("✅ 과학 원리 리서치 완료")
+                return data
+    except Exception as e:
+        print(f"⚠️ 리서치 실패: {e}")
+    return None
+
+# =========================================================
+# [함수 7] 키워드 추출
 # =========================================================
 def get_search_keywords(news_title):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
-    prompt = f"뉴스 제목: '{news_title}'. 이 뉴스의 핵심 영어 명사 키워드 3개를 콤마로 구분해줘."
+    prompt = f"'{news_title}' 뉴스의 핵심 영어 과학 키워드 3개만 콤마로. 단어만."
     try:
-        resp = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, headers={'Content-Type': 'application/json'})
+        resp = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, 
+                           headers={'Content-Type': 'application/json'}, timeout=10)
         return resp.json()['candidates'][0]['content']['parts'][0]['text'].strip()
     except:
-        return "science, technology"
+        return "science, research"
 
 # =========================================================
-# [함수 5] 이미지 검색
+# [함수 8] 이미지 검색
 # =========================================================
 def get_relevant_images_webp(query):
+    if not PEXELS_API_KEY:
+        return []
     print(f"🖼️ Pexels 이미지 검색: {query}")
     try:
-        resp = requests.get("https://api.pexels.com/v1/search", headers={"Authorization": PEXELS_API_KEY}, params={"query": query, "per_page": 2, "orientation": "landscape", "size": "medium"})
+        resp = requests.get("https://api.pexels.com/v1/search", 
+                          headers={"Authorization": PEXELS_API_KEY}, 
+                          params={"query": query, "per_page": 2, "orientation": "landscape"}, 
+                          timeout=10)
         if resp.status_code == 200:
-            urls = [p['src']['original'] + "?auto=compress&fm=webp&w=800" for p in resp.json().get('photos', [])]
-            if len(urls) >= 2:
-                print(f"✅ 이미지 {len(urls)}장 확보")
-                return urls
-            else:
-                print("⚠️ 이미지가 부족하여 기본 이미지 사용 고려")
-                return []
+            return [p['src']['original'] + "?auto=compress&fm=webp&w=800" 
+                   for p in resp.json().get('photos', [])]
     except Exception as e:
         print(f"⛔ 이미지 검색 에러: {e}")
     return []
 
 # =========================================================
-# [함수 6] 후킹 제목 생성
+# [함수 9] 마크다운 클리너
 # =========================================================
-def generate_viral_title(news_title):
-    print("🎣 AI가 클릭을 유도하는 제목을 짓고 있습니다...")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
-    
-    prompt = f"""
-    너는 베테랑 과학 에디터야. 아래 뉴스 제목을 블로그용으로 매력적으로 다시 써줘.
-    
-    [원래 제목]
-    {news_title}
-    
-    [제목 작성 규칙]
-    1. **후킹(Hooking)**: 사람들의 호기심이나 궁금증을 강하게 자극하는 질문이나 문장으로 시작해. (존댓말 사용)
-    2. **과학 원리**: 그 뒤에 괄호 '()'를 치고, 이 뉴스와 관련된 핵심 과학 용어나 이론을 짧게 적어.
-    3. 따옴표나 불필요한 특수문자는 쓰지 마.
-    
-    [예시]
-    - 원제: 커피가 심장병 위험 낮춘다
-    -> 매일 마시는 이것, 사실 심장을 살린다? (폴리페놀 효과)
-    - 원제: 제임스 웹 망원경, 가장 오래된 은하 관측
-    -> 우주의 시작을 찍었다, 시간 여행의 증거일까 (빅뱅 이론)
-    
-    [출력]
-    오직 완성된 제목 한 줄만 출력해.
-    """
-    
-    payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.7}}
-    
-    try:
-        res = requests.post(url, json=payload, headers={'Content-Type': 'application/json'})
-        if res.status_code == 200:
-            new_title = res.json()['candidates'][0]['content']['parts'][0]['text'].strip()
-            return new_title.replace('"', '').replace("'", "")
-    except:
-        pass
-    return news_title
+def clean_markdown(text):
+    text = re.sub(r'\*\*([^\*]+)\*\*', r'<b>\1</b>', text)
+    text = re.sub(r'\*([^\*]+)\*', r'<i>\1</i>', text)
+    text = text.replace('###', '').replace('##', '').replace('#', '')
+    text = text.replace('```', '').replace('**', '').replace('__', '')
+    return text
 
 # =========================================================
-# [함수 7] 글 작성 및 '박스 뜯기'
+# [함수 10] ★ 심층 과학 칼럼 작성 (애드센스 승인용)
 # =========================================================
-def generate_deep_content_with_images(news, image_urls):
-    print(f"🧠 AI({MODEL_NAME})가 본문 작성 중...")
+def generate_deep_science_content(news, images, article_content, research_data):
+    print(f"🧠 AI가 심층 과학 칼럼 작성 중...")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
     
-    img1 = f'<img src="{image_urls[0]}" alt="img1" style="width:100%; border-radius:10px; margin:20px 0;">' if len(image_urls)>0 else ""
-    img2 = f'<img src="{image_urls[1]}" alt="img2" style="width:100%; border-radius:10px; margin:20px 0;">' if len(image_urls)>1 else ""
+    # 리서치 데이터 통합
+    research_section = ""
+    if research_data:
+        research_section = f"""
+[참고할 과학 지식]
+- 핵심 원리: {research_data.get('scientific_principle', 'N/A')}
+- 연구 방법: {research_data.get('research_method', 'N/A')}
+- 역사적 배경: {research_data.get('historical_context', 'N/A')}
+- 학계 평가: {research_data.get('academic_evaluation', 'N/A')}
+- 미래 응용: {research_data.get('future_application', 'N/A')}
+"""
+
+    article_section = f"\n[원문 기사 발췌]\n{article_content[:1500]}\n" if article_content else ""
 
     prompt = f"""
-    당신은 과학 전문 칼럼니스트입니다. 아래 뉴스에 대해 깊이 있는 해설 글을 HTML로 작성하세요.
+    당신은 10년 경력의 과학 저널리스트입니다.
+    아래 뉴스를 단순 요약이 아닌, **교과서 수준의 심층 과학 해설 칼럼**으로 작성하세요.
 
     [뉴스 정보]
     제목: {news.title}
     링크: {news.link}
+    {article_section}
+    {research_section}
     
-    [작성 절차 (Chain of Thought)]
-    글을 쓰기 전에 다음 단계를 머릿속으로 먼저 수행하세요:
-    1. **키워드 분석**: 뉴스 제목에서 핵심 과학 개념(예: 양자 얽힘, 효소 작용, 블랙홀 등)을 추출하십시오.
-    2. **배경 지식 확장**: 해당 개념의 교과서적인 정의, 원리, 발견 역사를 떠올리십시오.
-    3. **연결**: 이 기초 과학 원리가 뉴스 속 최신 발견과 어떻게 연결되는지 논리적으로 구성하십시오.
-    4. **팩트 체크**: 작성된 내용에 비과학적 비약이나 오류가 없는지 스스로 검증하십시오.
-    5. **이미지 배치**: 아래 제공된 2개의 이미지 태그를 글의 문맥에 맞는 적절한 위치(문단 사이)에 자연스럽게 삽입하세요. (반드시 2개 모두 사용할 것)
-       - 이미지 태그 1: {img1}
-       - 이미지 태그 2: {img2}
-
-    [글의 구성 (HTML)]
-    - <h2>제목 (흥미롭게 각색)</h2>
-    - <p>도입부 요약</p>
-    - (적절한 위치에 이미지 태그 삽입)
-    - <h2>기초 과학 원리 해설</h2>
-    - <p>원리 상세 설명</p>
-    - (적절한 위치에 이미지 태그 삽입)
-    - <h2>뉴스 심층 분석</h2>
-    - <p>분석 내용</p>
-    - <p>결론 및 의의</p>
-    - <p><small>원문 뉴스: {news.title}</small></p>
+    [작성 가이드 - 애드센스 승인용]
+    1. **독창성**: 다른 뉴스 사이트와 완전히 다른 관점과 깊이
+    2. **교육적 가치**: 독자가 과학 원리를 실제로 배울 수 있는 수준
+    3. **전문성**: 과학적 정확성과 출처 명시
+    4. **충분한 길이**: 최소 1500자 이상의 상세한 설명
+    5. **비판적 사고**: 한계와 반론도 제시
     
-    [필수 형식]
-    HTML 태그(<h2>, <p>, <ul>, <li> 등)만 출력하세요. 
-    마크다운 코드 블록(```html)은 절대 사용하지 마세요.
-
-    [주의사항]
-    - 말투는 친절하고 명확한 '해요체'를 사용하세요.
-    - 과학적 사실이 불확실한 경우 단정 짓지 말고 "추정됩니다" 또는 "연구 중입니다"라고 표현하세요.
+    [HTML 구조]
+    <h2>🔬 [독자의 호기심을 끄는 소제목]</h2>
+    <p>[이 발견이 왜 혁명적인지 - 4문장]</p>
+    
+    [[IMAGE_1]]
+    
+    <h2>📚 과학 원리의 기초부터</h2>
+    <p>[핵심 개념을 중학생도 이해할 수 있게 - 7문장 이상]</p>
+    <ul>
+      <li>원리 1: [분자 수준 설명]</li>
+      <li>원리 2: [에너지/힘의 작용]</li>
+      <li>원리 3: [전체 시스템 동작]</li>
+    </ul>
+    
+    <h2>🧪 연구진은 어떻게 발견했나</h2>
+    <p>[실험 장비, 방법론, 샘플, 통계 - 6문장 이상]</p>
+    
+    [[IMAGE_2]]
+    
+    <h2>🔗 과거부터 현재까지: 과학사의 맥락</h2>
+    <p>[이 발견의 역사적 배경, 과거 연구 - 5문장 이상]</p>
+    
+    <h2>🚀 10년 후, 이 기술은 어디에</h2>
+    <p>[구체적인 응용 기술과 예측 - 5문장 이상]</p>
+    
+    <h2>⚠️ 과학자들이 말하는 한계</h2>
+    <p>[재현성 이슈, 추가 검증 필요 사항, 논쟁 - 4문장 이상]</p>
+    
+    <p><strong>결론:</strong> [핵심 메시지 2문장]</p>
+    <hr>
+    <p style="color:grey; font-size:0.85em;">📰 출처: <a href="{news.link}">{news.title}</a></p>
+    <p style="color:grey; font-size:0.85em;">🔬 본 글은 과학적 사실을 기반으로 작성되었으며, 불확실한 부분은 명시하였습니다.</p>
+    
+    [필수 규칙]
+    - HTML 태그만 출력 (```html 금지)
+    - 해요체 사용
+    - 전문 용어는 괄호로 쉽게 풀이
+    - 각 섹션 최소 4문장 이상
+    - 과학적 사실 100% 정확
+    - [[IMAGE_1]], [[IMAGE_2]]는 정확히 그대로 출력
     """
     
-    payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.3}}
-    
-    for _ in range(3):
+    for attempt in range(3):
         try:
-            res = requests.post(url, json=payload, headers={'Content-Type': 'application/json'})
+            res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, 
+                              headers={'Content-Type': 'application/json'}, timeout=40)
             if res.status_code == 200:
-                content = res.json()['candidates'][0]['content']['parts'][0]['text']
-                return content.replace("```html", "").replace("```", "").strip()
+                raw = res.json()['candidates'][0]['content']['parts'][0]['text']
+                clean = clean_markdown(raw)
+                clean = clean.replace("```html", "").replace("```", "").strip()
+                
+                # 이미지 치환
+                img1 = f'<img src="{images[0]}" style="width:100%; border-radius:10px; margin:20px 0;">' if len(images) > 0 else ""
+                img2 = f'<img src="{images[1]}" style="width:100%; border-radius:10px; margin:20px 0;">' if len(images) > 1 else img1
+                
+                clean = clean.replace("[[IMAGE_1]]", img1)
+                clean = clean.replace("[[IMAGE_2]]", img2)
+                
+                # 최소 길이 체크 (1200자 이상)
+                if len(clean) > 1200:
+                    print(f"✅ 글 작성 완료 ({len(clean)}자)")
+                    return clean
+                else:
+                    print(f"⚠️ 글이 너무 짧음 ({len(clean)}자), 재시도...")
+                    time.sleep(3)
+                    
             elif res.status_code == 429:
+                print("⏳ Rate limit, 30초 대기...")
                 time.sleep(30)
-        except:
+        except Exception as e:
+            print(f"❌ 시도 {attempt+1}/3 실패: {e}")
             time.sleep(5)
+    
     return None
 
 # =========================================================
-# [메인 실행] (수정됨: 반복문 추가)
+# [함수 11] 제목 생성
+# =========================================================
+def generate_viral_title(news_title):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
+    prompt = f"""
+    '{news_title}' 뉴스의 블로그 제목 1개만.
+    
+    규칙:
+    1. 호기심 자극하는 질문 형태
+    2. 괄호에 핵심 과학 용어
+    3. 특수문자 금지
+    4. 제목만 출력
+    
+    예: 매일 마시는 이것, 심장을 살린다? (폴리페놀 효과)
+    """
+    
+    try:
+        res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, 
+                          headers={'Content-Type': 'application/json'}, timeout=10)
+        title = res.json()['candidates'][0]['content']['parts'][0]['text'].strip()
+        return title.split('\n')[0].replace('"', '').replace('*', '').strip()
+    except:
+        return news_title
+
+# =========================================================
+# [메인 실행]
 # =========================================================
 def run_bot():
+    print("▶️ 과학 심층 분석 봇 시작 (애드센스 승인용)")
     try:
-        # 1. Blogger 서비스 연결
         creds = Credentials.from_authorized_user_info(TOKEN_JSON)
         service = build('blogger', 'v3', credentials=creds)
 
-        # 2. 뉴스 리스트 가져오기 (최대 5개)
         news_list = get_science_news_list()
         if not news_list:
-            print("❌ 가져온 뉴스가 없습니다.")
+            print("❌ 뉴스 없음")
             return
 
-        # 3. 뉴스 하나씩 순회하며 중복 체크
-        target_news = None
-        
+        target = None
         for news in news_list:
-            print(f"🔎 기사 확인 중: {news.title}")
+            print(f"\n{'='*60}\n🔎 {news.title}")
             if check_is_duplicate(service, news.title):
-                print(f"🚫 [중복] 이미 포스팅된 기사입니다. 다음 기사로 넘어갑니다.")
-                continue # 다음 뉴스로 점프
-            else:
-                print(f"✅ [통과] 새로운 기사입니다! 작업을 시작합니다.")
-                target_news = news
-                break # 작업할 뉴스를 찾았으니 루프 탈출
+                print("🚫 중복")
+                continue
+            target = news
+            break
         
-        # 4. 모든 뉴스가 중복이라면 종료
-        if not target_news:
-            print("😴 오늘은 모든 상위 뉴스가 이미 포스팅되었습니다. 봇을 종료합니다.")
+        if not target:
+            print("😴 새 뉴스 없음")
             return
 
-        # =====================================
-        # 여기서부터는 target_news로 글 작성 시작
-        # =====================================
+        print(f"\n✅ 선택: {target.title}\n{'='*60}\n")
 
-        # 5. 키워드 및 이미지
-        keywords = get_search_keywords(target_news.title)
+        # ★★★ 3단계 폴백 시스템 ★★★
+        # 1단계: 원문 크롤링
+        article_content = fetch_article_content(target.link)
+        
+        # 2단계: 비슷한 기사들 찾기
+        if not article_content:
+            print("📡 Plan B: 비슷한 기사들 수집...")
+            article_content = find_related_articles(target.title, news_list)
+        
+        # 3단계: AI 지식 기반 분석
+        if not article_content:
+            print("🤖 Plan C: AI 지식 기반 분석...")
+            article_content = ask_ai_about_science(target.title)
+        
+        # 과학 원리 심층 리서치
+        research_data = research_science_deeply(target.title, article_content)
+        
+        # 이미지 검색
+        keywords = get_search_keywords(target.title)
         images = get_relevant_images_webp(keywords)
         
-        # 6. 본문 작성
-        content = generate_deep_content_with_images(target_news, images)
-        if not content: 
+        # 심층 칼럼 작성
+        content = generate_deep_science_content(target, images, article_content, research_data)
+        
+        if not content:
             print("❌ 글 작성 실패")
             return
 
-        # 7. 제목 생성 및 업로드
-        final_title = generate_viral_title(target_news.title)
+        # 제목 생성 및 업로드
+        title = generate_viral_title(target.title)
+        print(f"\n📤 제목: {title}")
         
-        print("📤 블로그 업로드 중...")
-        body = {"kind": "blogger#post", "title": final_title, "content": content}
+        body = {"kind": "blogger#post", "title": title, "content": content}
         service.posts().insert(blogId=BLOG_ID, body=body).execute()
-        print(f"🎉 포스팅 완료! 제목: {final_title}")
-        
+        print(f"🎉 업로드 완료! ({len(content)}자)")
+
     except Exception as e:
-        print(f"⛔ 치명적 오류: {e}")
+        print(f"⛔ 오류: {e}")
+        import traceback
+        traceback.print_exc()
         exit(1)
 
 if __name__ == "__main__":
