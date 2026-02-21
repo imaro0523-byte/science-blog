@@ -51,46 +51,31 @@ def get_dashboard_html():
             stock = yf.Ticker(ticker)
             hist = stock.history(period="2d")
             if len(hist) >= 2:
-                close_today = hist['Close'].iloc[-1]
-                close_prev = hist['Close'].iloc[-2]
-                data[key]['price'] = close_today
-                data[key]['chg'] = ((close_today - close_prev) / close_prev) * 100
+                data[key]['price'] = hist['Close'].iloc[-1]
+                data[key]['chg'] = ((hist['Close'].iloc[-1] - hist['Close'].iloc[-2]) / hist['Close'].iloc[-2]) * 100
     except Exception as e:
         print(f"⚠️ 주식 데이터 실패: {e}")
 
     try:
-        url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=krw&include_24hr_change=true"
-        res = requests.get(url, timeout=5).json()
+        res = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=krw&include_24hr_change=true", timeout=5).json()
         data['btc']['price'] = res['bitcoin']['krw']
         data['btc']['chg'] = res['bitcoin']['krw_24h_change']
     except:
         pass
 
     def get_style(chg):
-        color = "#d63031" if chg >= 0 else "#0984e3"
-        arrow = "▲" if chg >= 0 else "▼"
-        return color, arrow
+        return ("#d63031", "▲") if chg >= 0 else ("#0984e3", "▼")
 
     items_html = ""
     for key in ['btc', 'snp', 'nas', 'kos', 'kdq']:
         color, arrow = get_style(data[key]['chg'])
         price_fmt = f"{data[key]['price']:,.0f}" if key == 'btc' else f"{data[key]['price']:,.2f}"
-        
-        items_html += f"""
-        <div style="flex: 1 1 18%; min-width: 100px; margin: 5px; padding: 10px; background: #fff; border-radius: 8px; border: 1px solid #eee; text-align: center;">
-            <div style="font-size: 11px; color: #888;">{data[key]['name']}</div>
-            <div style="font-size: 14px; font-weight: 800; color: {color};">{arrow} {price_fmt}</div>
-            <div style="font-size: 10px; color: {color};">({data[key]['chg']:.2f}%)</div>
-        </div>"""
+        items_html += f'<div style="flex: 1 1 18%; min-width: 100px; margin: 5px; padding: 10px; background: #fff; border-radius: 8px; text-align: center;"><div style="font-size: 11px; color: #888;">{data[key]["name"]}</div><div style="font-size: 14px; font-weight: 800; color: {color};">{arrow} {price_fmt}</div><div style="font-size: 10px; color: {color};">({data[key]["chg"]:.2f}%)</div></div>'
     
-    return f"""
-    <div style="font-family: -apple-system; margin-bottom: 30px; background: #f8f9fa; border-radius: 12px; padding: 15px;">
-        <h3 style="text-align: center; margin: 0 0 10px 0; font-size: 16px;">⚡ Market Flow Check</h3>
-        <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 5px;">{items_html}</div>
-    </div>"""
+    return f'<div style="font-family: -apple-system; margin-bottom: 30px; background: #f8f9fa; border-radius: 12px; padding: 15px;"><h3 style="text-align: center; margin: 0 0 10px 0; font-size: 16px;">⚡ Market Flow Check</h3><div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 5px;">{items_html}</div></div>'
 
 # =========================================================
-# [함수 2-6] 뉴스, 중복확인, 크롤링, 관련기사, AI분석
+# [함수 2-6] 뉴스, 중복, 크롤링, 관련기사, AI분석
 # =========================================================
 def get_business_news_list():
     print("🔍 금융 뉴스 검색...")
@@ -131,9 +116,7 @@ def find_related_articles(target_title, all_news_list):
     related = []
     
     for news in all_news_list:
-        if news.title == target_title:
-            continue
-        if len(set(news.title.split()) & target_keywords) >= 2:
+        if news.title != target_title and len(set(news.title.split()) & target_keywords) >= 2:
             related.append(news)
             if len(related) >= 3:
                 break
@@ -158,7 +141,7 @@ def find_related_articles(target_title, all_news_list):
 def ask_ai_about_economy(news_title):
     print("🤖 AI 분석...")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
-    prompt = f"'{news_title}' 경제 뉴스를 4-5문단으로 분석: 배경, 경제 원리, 영향, 전망"
+    prompt = f"'{news_title}' 경제 뉴스를 5-6문단으로 심층 분석: 배경, 경제 원리, 역사적 맥락, 영향, 전망, 리스크"
     
     try:
         res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=20)
@@ -166,20 +149,66 @@ def ask_ai_about_economy(news_title):
             text = res.json()['candidates'][0]['content']['parts'][0]['text']
             if len(text) > 150:
                 print(f"✅ {len(text)}자 생성")
-                return text[:2000]
+                return text[:2500]
     except:
         pass
     return None
 
 # =========================================================
-# [함수 7] 기업 리서치
+# [함수 7] ★ 경제 원리 심층 리서치 (핵심 추가!)
+# =========================================================
+def research_economy_deeply(news_title, article_content):
+    """테크/과학 코드처럼 심층 리서치"""
+    print("🔬 경제 원리 심층 리서치 중...")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
+    
+    context = f"기사 내용: {article_content[:1500]}" if article_content else f"제목: {news_title}"
+    
+    prompt = f"""
+    다음 경제/금융 뉴스를 분석하여 독자들이 알아야 할 경제 지식을 정리해주세요.
+    
+    {context}
+    
+    다음 항목들을 각각 3-4문장으로 상세히 설명:
+    1. 핵심 경제 원리: 이 뉴스와 관련된 경제학 개념 (예: 금리, 인플레이션, 공급망, 환율, 양적완화, 재정정책 등)을 교과서 수준으로 설명
+    2. 역사적 맥락: 과거 비슷한 경제 사건이나 위기 사례 (예: 2008 금융위기, 1997 IMF, 닷컴버블 등)
+    3. 시장 메커니즘: 이 뉴스가 주식/채권/부동산 시장에 미치는 구체적 영향 경로
+    4. 전문가 의견: 경제학자, 애널리스트들의 평가와 논쟁 (찬반 의견)
+    5. 미래 시나리오: 3-5년 후 이 이슈가 경제에 미칠 영향 예측
+    
+    JSON으로 출력:
+    {{
+      "economic_principle": "...",
+      "historical_context": "...",
+      "market_mechanism": "...",
+      "expert_opinions": "...",
+      "future_scenario": "..."
+    }}
+    """
+    
+    try:
+        res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, 
+                          headers={'Content-Type': 'application/json'}, timeout=20)
+        if res.status_code == 200:
+            raw = res.json()['candidates'][0]['content']['parts'][0]['text']
+            match = re.search(r'\{.*\}', raw, re.DOTALL)
+            if match:
+                data = json.loads(match.group())
+                print("✅ 경제 원리 리서치 완료")
+                return data
+    except Exception as e:
+        print(f"⚠️ 리서치 실패: {e}")
+    return None
+
+# =========================================================
+# [함수 8] 기업 리서치
 # =========================================================
 def research_companies(news_title, article_content):
-    print("🔬 기업 리서치...")
+    print("🏢 기업 리서치...")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
     context = article_content[:1000] if article_content else news_title
     
-    prompt = f"{context}\n\n미국 기업 1-2개(티커), 한국 기업 1-2개(티커) JSON 출력:\n{{'us_companies':['Apple(AAPL)'],'kr_companies':['삼성전자(005930.KS)']}}"
+    prompt = f"{context}\n\n미국 기업 1-2개(티커), 한국 기업 1-2개(티커) JSON:\n{{'us_companies':['Apple(AAPL)'],'kr_companies':['삼성전자(005930.KS)']}}"
     
     try:
         res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=15)
@@ -210,10 +239,7 @@ def get_company_info(companies_list):
             info = stock.info
             
             market_cap = info.get('marketCap', 0)
-            if market_cap:
-                cap_display = f"{market_cap/1e12:.1f}조원" if 'KS' in ticker else f"${market_cap/1e9:.1f}B"
-            else:
-                cap_display = "N/A"
+            cap_display = f"{market_cap/1e12:.1f}조원" if 'KS' in ticker and market_cap else (f"${market_cap/1e9:.1f}B" if market_cap else "N/A")
             
             price = info.get('currentPrice', 0)
             if not price:
@@ -239,25 +265,17 @@ def make_company_cards(company_data):
     
     cards = '<div style="display: flex; flex-wrap: wrap; gap: 15px; margin: 25px 0;">'
     for c in company_data:
-        cards += f"""
-        <div style="flex: 1 1 calc(50% - 15px); min-width: 250px; background: #f8f9fa; border-radius: 12px; padding: 20px; border-left: 4px solid #0984e3;">
-            <h3 style="margin: 0 0 10px 0;">{c['name']}</h3>
-            <p style="margin: 5px 0; font-size: 13px;"><b>티커:</b> {c['ticker']}</p>
-            <p style="margin: 5px 0; font-size: 13px;"><b>현재가:</b> {c['price']}</p>
-            <p style="margin: 5px 0; font-size: 13px;"><b>시총:</b> {c['market_cap']}</p>
-            <p style="margin: 5px 0; font-size: 13px;"><b>섹터:</b> {c['sector']}</p>
-        </div>"""
+        cards += f'<div style="flex: 1 1 calc(50% - 15px); min-width: 250px; background: #f8f9fa; border-radius: 12px; padding: 20px; border-left: 4px solid #0984e3;"><h3 style="margin: 0 0 10px 0;">{c["name"]}</h3><p style="margin: 5px 0; font-size: 13px;"><b>티커:</b> {c["ticker"]}</p><p style="margin: 5px 0; font-size: 13px;"><b>현재가:</b> {c["price"]}</p><p style="margin: 5px 0; font-size: 13px;"><b>시총:</b> {c["market_cap"]}</p><p style="margin: 5px 0; font-size: 13px;"><b>섹터:</b> {c["sector"]}</p></div>'
     cards += '</div>'
     return cards
 
 # =========================================================
-# [함수 8-9] 키워드, 이미지
+# [함수 9-10] 키워드, 이미지
 # =========================================================
 def get_search_keywords(news_title):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
-    prompt = f"'{news_title}' 영어 키워드 2개만 콤마로"
     try:
-        resp = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=10)
+        resp = requests.post(url, json={"contents": [{"parts": [{"text": f"'{news_title}' 영어 키워드 2개만"}]}]}, timeout=10)
         return resp.json()['candidates'][0]['content']['parts'][0]['text'].strip()
     except:
         return "business, economy"
@@ -276,93 +294,104 @@ def get_relevant_images_webp(query):
     return []
 
 # =========================================================
-# [함수 10] 마크다운 클리너 (강화!)
+# [함수 11] 마크다운 클리너
 # =========================================================
 def clean_markdown(text):
-    # **bold** → <b>bold</b>
     text = re.sub(r'\*\*([^\*]+)\*\*', r'<strong>\1</strong>', text)
     text = re.sub(r'\*([^\*]+)\*', r'<em>\1</em>', text)
-    # 남은 마크다운 제거
-    text = text.replace('###', '').replace('##', '').replace('#', '')
-    text = text.replace('```', '').replace('**', '').replace('__', '')
-    # HTML 태그 정리
-    text = re.sub(r'<i>(\d+)</i>', r'\1', text)  # <i>1</i> → 1
-    text = re.sub(r'</i>', '', text)
-    text = re.sub(r'<i>', '', text)
+    text = text.replace('###', '').replace('##', '').replace('#', '').replace('```', '').replace('**', '').replace('__', '')
+    text = re.sub(r'<i>(\d+)</i>', r'\1', text)
+    text = re.sub(r'</i>|<i>', '', text)
     return text
 
 # =========================================================
-# [함수 11] ★ 본문 생성 (치환 문제 해결!)
+# [함수 12] ★ 심층 경제 칼럼 작성 (리서치 데이터 활용!)
 # =========================================================
-def generate_content(news, images, dashboard, article_content, company_data):
-    print("🧠 칼럼 작성...")
+def generate_deep_content(news, images, dashboard, article_content, research_data, company_data):
+    print("🧠 심층 경제 칼럼 작성...")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
     
     article_part = f"[기사 발췌]\n{article_content[:1200]}" if article_content else ""
+    
+    # ★ 리서치 데이터 통합
+    research_section = ""
+    if research_data:
+        research_section = f"""
+[참고할 경제 지식]
+- 경제 원리: {research_data.get('economic_principle', 'N/A')}
+- 역사적 맥락: {research_data.get('historical_context', 'N/A')}
+- 시장 메커니즘: {research_data.get('market_mechanism', 'N/A')}
+- 전문가 의견: {research_data.get('expert_opinions', 'N/A')}
+- 미래 시나리오: {research_data.get('future_scenario', 'N/A')}
+"""
+    
     company_summary = ""
     if company_data:
         company_summary = "\n[관련 기업]\n" + "\n".join([f"- {c['name']}: {c['market_cap']}, {c['sector']}" for c in company_data])
     
     prompt = f"""
-    경제 전문 칼럼니스트로서 심층 분석 작성.
+    당신은 10년 경력의 경제 전문 칼럼니스트입니다.
+    아래 뉴스를 단순 요약이 아닌, **교과서 수준의 심층 경제 해설**로 작성하세요.
     
     [뉴스] {news.title}
     {article_part}
+    {research_section}
     {company_summary}
+    
+    [작성 가이드 - 깊이 있는 분석]
+    1. **경제 원리**: 기초 개념부터 상세히 설명 (중학생도 이해 가능하게)
+    2. **역사 비교**: 과거 사례와 비교 분석
+    3. **메커니즘**: 돈의 흐름과 영향 경로를 단계별로
+    4. **다각적 관점**: 찬반 의견 모두 제시
+    5. **충분한 길이**: 최소 1500자 이상
     
     HTML 구조:
     DASHBOARDHERE
-    <h2>🔥 소제목</h2>
-    <p>후킹 3문장</p>
+    <h2>🔥 [도발적 소제목]</h2>
+    <p>[후킹 4문장]</p>
     IMAGE1HERE
-    <h2>📚 경제 원리</h2>
-    <p>설명 5문장</p>
-    <h2>🏢 관련 기업</h2>
-    <p>기업 분석 4문장</p>
-    COMPANYCARDSHERE
+    <h2>📚 경제 원리의 기초</h2>
+    <p>[개념을 교과서 수준으로 7문장]</p>
+    <ul><li>원리 1</li><li>원리 2</li><li>원리 3</li></ul>
+    <h2>🔗 과거에도 있었다: 역사적 맥락</h2>
+    <p>[비슷한 과거 사례 5문장]</p>
+    <h2>💸 돈의 흐름: 시장 메커니즘</h2>
+    <p>[영향 경로를 단계별로 6문장]</p>
     IMAGE2HERE
-    <h2>💰 인사이트</h2>
-    <p>전망 4문장</p>
-    <p><strong>결론:</strong> 1문장</p>
-    <hr><p style="color:grey; font-size:0.85em;">📰 출처: {news.title}</p>
+    <h2>🏢 관련 기업 분석</h2>
+    <p>[기업 영향 4문장]</p>
+    COMPANYCARDSHERE
+    <h2>🔮 3년 후 시나리오</h2>
+    <p>[미래 예측 5문장]</p>
+    <h2>⚠️ 전문가들의 우려</h2>
+    <p>[리스크와 반대 의견 4문장]</p>
+    <p><strong>결론:</strong> [2문장]</p>
+    <hr><p style="color:grey; font-size:0.85em;">📰 출처: {news.title}<br>⚠️ 투자 판단은 본인 책임</p>
     
-    규칙: HTML만 출력, 해요체, 각 섹션 3문장 이상
+    규칙: HTML만, 해요체, 각 섹션 4문장 이상
     """
     
     for attempt in range(3):
         try:
-            res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=30)
+            res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=40)
             if res.status_code == 200:
                 raw = res.json()['candidates'][0]['content']['parts'][0]['text']
+                clean = clean_markdown(raw).replace("```html", "").replace("```", "").strip()
                 
-                # ★ 1단계: 마크다운 클리닝
-                clean = clean_markdown(raw)
-                clean = clean.replace("```html", "").replace("```", "").strip()
+                # 치환
+                clean = clean.replace("DASHBOARDHERE", dashboard).replace("[[DASHBOARD]]", dashboard)
+                clean = clean.replace("COMPANYCARDSHERE", make_company_cards(company_data)).replace("[[COMPANY_CARDS]]", make_company_cards(company_data))
                 
-                # ★ 2단계: 대시보드 치환
-                clean = clean.replace("DASHBOARDHERE", dashboard)
-                clean = clean.replace("[[DASHBOARD]]", dashboard)
-                
-                # ★ 3단계: 기업 카드 치환
-                cards_html = make_company_cards(company_data)
-                clean = clean.replace("COMPANYCARDSHERE", cards_html)
-                clean = clean.replace("[[COMPANY_CARDS]]", cards_html)
-                clean = clean.replace("[[COMPANYCARDS]]", cards_html)
-                
-                # ★ 4단계: 이미지 치환
                 img1 = f'<img src="{images[0]}" style="width:100%; border-radius:12px; margin:25px 0;">' if len(images) > 0 else ""
                 img2 = f'<img src="{images[1]}" style="width:100%; border-radius:12px; margin:25px 0;">' if len(images) > 1 else img1
+                clean = clean.replace("IMAGE1HERE", img1).replace("IMAGE2HERE", img2).replace("[[IMAGE_1]]", img1).replace("[[IMAGE_2]]", img2)
                 
-                clean = clean.replace("IMAGE1HERE", img1)
-                clean = clean.replace("IMAGE2HERE", img2)
-                clean = clean.replace("[[IMAGE_1]]", img1)
-                clean = clean.replace("[[IMAGE_2]]", img2)
-                clean = clean.replace("[[IMAGE1]]", img1)
-                clean = clean.replace("[[IMAGE2]]", img2)
-                
-                if len(clean) > 500:
+                # ★ 최소 길이 체크 (1200자 이상)
+                if len(clean) > 1200:
                     print(f"✅ {len(clean)}자 완성")
                     return clean
+                else:
+                    print(f"⚠️ 너무 짧음 ({len(clean)}자), 재시도...")
                     
             time.sleep(3)
         except Exception as e:
@@ -372,9 +401,8 @@ def generate_content(news, images, dashboard, article_content, company_data):
 
 def generate_title(news_title):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
-    prompt = f"'{news_title}' 블로그 제목 1개만. 도파민 자극. 특수문자 금지."
     try:
-        res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=10)
+        res = requests.post(url, json={"contents": [{"parts": [{"text": f"'{news_title}' 블로그 제목 1개. 도파민 자극. 특수문자 금지."}]}]}, timeout=10)
         title = res.json()['candidates'][0]['content']['parts'][0]['text'].strip()
         return title.split('\n')[0].replace('"', '').replace('*', '').strip()
     except:
@@ -384,7 +412,7 @@ def generate_title(news_title):
 # [메인 실행]
 # =========================================================
 def run_bot():
-    print("▶️ 경제 블로그 봇 시작")
+    print("▶️ 경제 심층 분석 봇 시작 (애드센스 승인용)")
     try:
         creds = Credentials.from_authorized_user_info(TOKEN_JSON)
         service = build('blogger', 'v3', credentials=creds)
@@ -408,24 +436,31 @@ def run_bot():
 
         print(f"\n✅ 선택: {target.title}\n{'='*60}\n")
 
-        # 3단계 폴백
+        # ★★★ 강화된 파이프라인 ★★★
+        # 1-3단계: 원문 수집 (3단계 폴백)
         article_content = fetch_article_content(target.link)
         if not article_content:
             article_content = find_related_articles(target.title, news_list)
         if not article_content:
             article_content = ask_ai_about_economy(target.title)
         
-        research_data = research_companies(target.title, article_content)
+        # 4단계: ★ 경제 원리 심층 리서치 (핵심 추가!)
+        research_data = research_economy_deeply(target.title, article_content)
+        
+        # 5단계: 기업 정보
+        company_research = research_companies(target.title, article_content)
         company_data = []
-        if research_data:
-            all_companies = research_data.get('us_companies', []) + research_data.get('kr_companies', [])
+        if company_research:
+            all_companies = company_research.get('us_companies', []) + company_research.get('kr_companies', [])
             company_data = get_company_info(all_companies)
         
+        # 6-7단계: 이미지, 대시보드
         keywords = get_search_keywords(target.title)
         images = get_relevant_images_webp(keywords)
         dashboard = get_dashboard_html()
         
-        content = generate_content(target, images, dashboard, article_content, company_data)
+        # 8단계: ★ 리서치 데이터 활용해서 심층 칼럼 작성
+        content = generate_deep_content(target, images, dashboard, article_content, research_data, company_data)
         if not content:
             print("❌ 작성 실패")
             return
