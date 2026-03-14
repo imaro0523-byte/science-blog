@@ -27,7 +27,7 @@ except:
     print("⛔ 토큰 로딩 실패")
     exit(1)
 
-MODEL_NAME = "gemini-2.5-pro"
+MODEL_NAME = "gemini-3-flash-preview"
 
 # =========================================================
 # [대시보드]
