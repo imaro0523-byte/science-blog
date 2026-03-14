@@ -14,7 +14,7 @@ from googleapiclient.discovery import build
 # =========================================================
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 PEXELS_API_KEY = os.environ.get('PEXELS_API_KEY')
-BLOG_ID = os.environ.get('MONEY_BLOG_ID')
+BLOG_ID = os.environ.get('BLOG_ID')
 
 if not GEMINI_API_KEY or not BLOG_ID:
     print("❌ 환경변수 누락")
