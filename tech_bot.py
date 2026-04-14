@@ -153,15 +153,32 @@ def generate_adsense_approved_content(news,images,sources,synthesized,research_d
 
 def generate_title(news_title):
     url=f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
-    prompt=f"다음 뉴스의 블로그 제목만 출력 (설명 금지, 20자 이내):\n{news_title}\n\n제목:"
+    prompt=f"""당신은 바이럴 헤드라인 전문가입니다. IT/테크 분야.
+
+뉴스 키워드: {news_title}
+
+아래 심리 기법 중 가장 적합한 것 하나로 제목을 만드세요:
+① 호기심 갭: "왜 개발자들은 ○○을 조용히 쓰는가?"
+② 숫자+충격: "○○가 IT판을 뒤흔든 단 하나의 이유"
+③ FOMO: "이미 늦었나? ○○ 지금 알아야 할 것들"
+④ 역설/반전: "편리한 줄 알았는데... ○○의 반전"
+⑤ 경고: "○○ 사용자라면 지금 당장 확인해야 할 것"
+
+출력 규칙:
+- 제목 텍스트만 (다른 말 일절 금지)
+- 35자 이내
+- 이모지 1개 허용
+- "제목:", "블로그", "드릴게요", "만들어", "제안" 절대 금지
+
+제목:"""
     try:
         res=requests.post(url,json={"contents":[{"parts":[{"text":prompt}]}]},timeout=10)
         if res.status_code==200:
             title=res.json()['candidates'][0]['content']['parts'][0]['text'].strip()
-            if any(word in title for word in['드릴게','만들어','제공','다음과','입니다','니다','습니다']):
-                return news_title[:50]
+            bad=['드릴게','만들어','제공','다음과','입니다','니다','습니다','제목:','블로그','제안','헤드라인','①','②','③','④','⑤']
+            if any(w in title for w in bad):return news_title[:50]
             title=title.split('\n')[0].replace('"','').replace("'",'').replace('*','').replace('#','').strip()
-            if len(title)>50:title=title[:50]
+            if len(title)>60:title=title[:60]
             return title if title else news_title[:50]
     except:pass
     return news_title[:50]
